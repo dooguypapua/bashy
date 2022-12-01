@@ -151,10 +151,11 @@ function trimString(){
 function git_folder () {
   repo=${1}
   path=${2}
+  token=${3}
   src_path=$(pwd)
   cd ${path}
   git add *
   git commit -m "$(date '+%Y-%m-%d')"
-  git push https://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@github.com/dooguypapua/${repo}.git
+  git push https://${token}@github.com/dooguypapua/${repo}.git
   cd ${src_path}
 }
