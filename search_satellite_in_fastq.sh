@@ -2,7 +2,7 @@ OUT=/tmp/search_PICMI_HMM_phages_fastq
 rm -rf ${OUT}
 mkdir -p ${OUT}
 echo -e "Phage\tTotal reads\tTotal unmapped reads\tPhage Primase\tPhage AlpA\tPhage Integrase\tUnmapped Primase contig\tUnmapped AlpA contig\tUnmapped Integrase contig\tUnmapped Primase read\tUnmapped AlpA read\tUnmapped Integrase read" > ${OUT}/search_PICMI_HMM_phages_fastq.tsv
-for R1 in /mnt/c/Users/dgoudenege/Data/myPhage/FASTQ/*5P1a_R1*
+for R1 in /mnt/c/Users/dgoudenege/Data/myPhage/FASTQ/*_R1*
   do
   name=$(basename ${R1} | sed s/"_R1.fastq.gz"/""/ | sed s/"Vibrio_phage_"/""/)
   R2=$(echo ${R1} | sed s/"R1"/"R2"/)
