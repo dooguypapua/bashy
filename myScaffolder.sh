@@ -585,7 +585,7 @@ for strain in "${array_strain[@]}"
           then cp ${path_tmp}/ragtag_${ref_name}_${replicon_name}/ragtag.scaffold.fasta ${path_outdir_ragtag}/${ref_name}_${replicon_name}.fasta
         fi
       done
-      rm -f ${path_out}/*.fai
+      rm -f ${path_outdir_assign}/*.fai
       spinny::stop
     fi
     echo -ne "|       ⮡ ragtag" ; rjust "15" true
