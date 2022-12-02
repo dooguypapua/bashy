@@ -1,3 +1,5 @@
+#!/bin/bash
+
 OUT=/tmp/search_PICMI_HMM_phages_fastq
 rm -rf ${OUT}
 mkdir -p ${OUT}

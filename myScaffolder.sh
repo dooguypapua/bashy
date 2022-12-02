@@ -1,3 +1,5 @@
+#!/bin/bash
+
 # ************************************************************************* #
 # *****                           FUNCTIONS                           ***** #
 # ************************************************************************* #
@@ -54,7 +56,9 @@ function usage {
     echo "|"$'  --abysspe'"                                                                |"    
     echo "|"$'  --abysssealer'"                                                            |"    
     echo "|"$'  --spades'"                                                                 |"    
-    echo "|"$'  --blastn'"                                                                 |"    
+    echo "|"$'  --blastn'"                                                                 |"
+    echo "|"$'  --nucmer'"                                                                 |"
+    echo "|"$'  --show-coords'"                                                            |"
     echo "|"$'  --ragtag'"                                                                 |"    
     echo "|"$'  --seqkit'"                                                                 |"
     echo "|"$'  --fasta2camsa_points'"                                                     |"
@@ -193,12 +197,36 @@ source "`dirname \"$0\"`"/spinny.sh
 title "myScaffolder"
 # Variables
 path_in=""
-threads=0
-memory=0
 qcov=90
 kmer=64
-path_tmp="/tmp"
 last_cmd=""
+# Slurm JOB (sbatch --mem 32GB -o myscaff.%N.%j.out -e myscaff.%N.%j.err --cpus-per-task=12 -p fast myScaffolder.sh -i myscaff.conf)
+if command -v sbatch &> /dev/null
+then
+  path_tmp="/shared/projects/gv/dgoudenege/tmp"
+  threads=$(printenv SLURM_CPUS_ON_NODE)
+  memory=$(sacct --format=reqmem -j 35384664 | tail -n 1 | grep -Po "\d+")
+  slurm_bool=true
+  module load fastp/0.23.1
+  module load abyss/2.2.1
+  module load spades/3.15.2
+  module load blast/2.13.0
+  module load ragtag/1.0.2
+  module load seqkit/2.1.0
+  module load jq/1.6
+  export PYTHONPATH=/home/umr8227/gv/dgoudenege/.local/lib/python3.8/site-packages/
+  FASTA2CAMSA=/home/umr8227/gv/dgoudenege/.local/lib/python3.8/site-packages/camsa/utils/fasta/fasta2camsa_points.py
+  RUN_CAMSA=/home/umr8227/gv/dgoudenege/.local/lib/python3.8/site-packages/camsa/run_camsa.py
+  CAMSA_POINTS2FASTA=/home/umr8227/gv/dgoudenege/.local/lib/python3.8/site-packages/camsa/utils/fasta/camsa_points2fasta.py
+# Local JOB
+else slurm_bool=false
+  path_tmp="/tmp"
+  threads=0
+  memory=0
+  FASTA2CAMSA=$(which fasta2camsa_points.py)
+  RUN_CAMSA=$(which run_camsa.py)
+  CAMSA_POINTS2FASTA=$(which camsa_points2fasta.py)
+fi
 # Tools $PATH
 COMPRESSOR=$(which pigz) # gzip
 FASTP=$(which fastp)
@@ -210,9 +238,6 @@ SHOWCOORDS=$(which show-coords)
 BLASTN=$(which blastn)
 RAGTAG=$(which ragtag.py)
 SEQKIT=$(which seqkit)
-FASTA2CAMSA=$(which fasta2camsa_points.py)
-RUN_CAMSA=$(which run_camsa.py)
-CAMSA_POINTS2FASTA=$(which camsa_points2fasta.py)
 JQ=$(which jq)
 # Colors
 colortitle='\x1b[38;2;0;205;255m'
@@ -224,7 +249,7 @@ decoration=$(printf '=%.0s' {1..100})
 # Header
 banner
 # Display usage if any argument
-if [[ ${#} -eq 0 ]]; then usage ; exit 1 ; fi
+if [[ ${#} -eq 0 ]]; then usage ; exit 0 ; fi
 # Transform long options to short ones
 for arg in "$@"; do
   shift
@@ -321,9 +346,9 @@ if ! command -v ${SHOWCOORDS} &> /dev/null; then usage ; display_error "show-coo
 if ! command -v ${BLASTN} &> /dev/null; then usage ; display_error "blastn not found (use \$PATH or specify it)" false ; fi
 if ! command -v ${RAGTAG} &> /dev/null; then usage ; display_error "ragtag.py not found (use \$PATH or specify it)" false ; fi
 if ! command -v ${SEQKIT} &> /dev/null; then usage ; display_error "seqkit not found (use \$PATH or specify it)" false ; fi
-if ! command -v ${FASTA2CAMSA} &> /dev/null; then usage ; display_error "fasta2camsa_points.py not found (use \$PATH or specify it)" false ; fi
-if ! command -v ${RUN_CAMSA} &> /dev/null; then usage ; display_error "run_camsa.py not found (use \$PATH or specify it)" false ; fi
-if ! command -v ${CAMSA_POINTS2FASTA} &> /dev/null; then usage ; display_error "camsa_points2fasta.py not found (use \$PATH or specify it)" false ; fi
+if [ ! command -v ${FASTA2CAMSA} &> /dev/null ] && [ ! -f ${FASTA2CAMSA} ]; then usage ; display_error "fasta2camsa_points.py not found (use \$PATH or specify it)" false ; fi
+if [ ! command -v ${RUN_CAMSA} &> /dev/null ] && [ ! -f ${RUN_CAMSA} ]; then usage ; display_error "run_camsa.py not found (use \$PATH or specify it)" false ; fi
+if [ ! command -v ${CAMSA_POINTS2FASTA} &> /dev/null ] && [ ! -f ${CAMSA_POINTS2FASTA} ]; then usage ; display_error "camsa_points2fasta.py not found (use \$PATH or specify it)" false ; fi
 if [[ "$COMPRESSOR" == *"pigz"* ]]; then COMPRESSOR="${COMPRESSOR} -p ${threads}" ; fi
 # Temporary folder
 uuidgen=$(uuidgen | cut -d "-" -f 1,2)
@@ -635,12 +660,12 @@ for strain in "${array_strain[@]}"
         do
         target_name=$(basename ${array_strain_ref[$i]} | sed s/".fasta"/""/)
         path_contigs_scaffolds_ref=${path_outdir_scaffold}/${target_name}_contigs_scaffolds.fasta
-        last_cmd=$(echo "${FASTA2CAMSA} ${path_contigs_scaffolds_ref} ${path_contigs_scaffolds_ref} -o scaffolds_points" | tee -a ${path_log})
-        ${FASTA2CAMSA} ${path_contigs_scaffolds_ref} ${path_contigs_scaffolds_ref} -o scaffolds_points 2>>${path_log} || display_error "merging for '${strain}'" true "merging"
-        last_cmd=$(echo "${RUN_CAMSA} scaffolds_points/${target_name}_contigs_scaffolds.camsa.points -o ." | tee -a ${path_log})
-        ${RUN_CAMSA} scaffolds_points/${target_name}"_contigs_scaffolds.camsa.points" -o . 2>>${path_log} || display_error "merging for '${strain}'" true "merging"
-        last_cmd=$(echo "${CAMSA_POINTS2FASTA} --allow-singletons --points merged/merged.camsa.points --fasta ${path_contigs_scaffolds_ref} -o ${path_tmp_merged_camsa}" | tee -a ${path_log})
-        ${CAMSA_POINTS2FASTA} --allow-singletons --points merged/merged.camsa.points --fasta ${path_contigs_scaffolds_ref} -o ${path_tmp_merged_camsa} 2>>${path_log} || display_error "merging for '${strain}'" true "merging"
+        last_cmd=$(echo "python3 ${FASTA2CAMSA} ${path_contigs_scaffolds_ref} ${path_contigs_scaffolds_ref} -o scaffolds_points" | tee -a ${path_log})
+        python3 ${FASTA2CAMSA} ${path_contigs_scaffolds_ref} ${path_contigs_scaffolds_ref} -o scaffolds_points 2>>${path_log} || display_error "merging for '${strain}'" true "merging"
+        last_cmd=$(echo python3 "${RUN_CAMSA} scaffolds_points/${target_name}_contigs_scaffolds.camsa.points -o ." | tee -a ${path_log})
+        python3 ${RUN_CAMSA} scaffolds_points/${target_name}"_contigs_scaffolds.camsa.points" -o . 2>>${path_log} || display_error "merging for '${strain}'" true "merging"
+        last_cmd=$(echo "python3 ${CAMSA_POINTS2FASTA} --allow-singletons --points merged/merged.camsa.points --fasta ${path_contigs_scaffolds_ref} -o ${path_tmp_merged_camsa}" | tee -a ${path_log})
+        python3 ${CAMSA_POINTS2FASTA} --allow-singletons --points merged/merged.camsa.points --fasta ${path_contigs_scaffolds_ref} -o ${path_tmp_merged_camsa} 2>>${path_log} || display_error "merging for '${strain}'" true "merging"
         path_tmp_merged_camsa=${path_contigs_scaffolds_ref}
       done
       awk 'BEGIN {RS=">";FS="\n"} NR>1 {seq=""; for (i=2;i<=NF;i++) seq=seq$i; print ">"$1"\n"seq}' ${path_tmp_merged_camsa} > ${path_final_out}
