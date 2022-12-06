@@ -61,9 +61,9 @@ function usage {
     echo "|"$'  --show-coords'"                                                            |"
     echo "|"$'  --ragtag'"                                                                 |"    
     echo "|"$'  --seqkit'"                                                                 |"
+    echo "|"$'  --run_camsa (replace blist.sortedList > sortedcontainers.sortedList)'"     |"
     echo "|"$'  --fasta2camsa_points'"                                                     |"
-    echo "|"$'  --run_camsa'"                                                              |"
-    echo "|"$'  --camsa_points2fasta'"                                                     |"
+    echo "|"$'  --camsa_points2fasta (comment Bio.Alphabet)'"                              |"
     echo "|"$'  --jq'"                                                                     |"
     echo "╰───────────────────────────────────────────────────────────────────────────╯"
     echo -e "╭───────────────────────────────────────────────────────────────────────────╮"
@@ -192,21 +192,31 @@ function nucmer_cov_filter {
 # ************************************************************************* #
 # *****                        INITIALIZATION                         ***** #
 # ************************************************************************* #
-source "`dirname \"$0\"`"/functions.sh
-source "`dirname \"$0\"`"/spinny.sh
+# Slurm path
+if [ -n $SLURM_JOB_ID ] && [ "$SLURM_JOB_ID" != "" ]
+  then
+  job_id="$SLURM_JOB_ID"
+  src_path=$(scontrol show job $SLURM_JOBID | awk -F= '/Command=/{print $2}' | cut -d " " -f 1)
+  source "`dirname \"$src_path\"`"/functions.sh
+  source "`dirname \"$src_path\"`"/spinny.sh
+else
+  source "`dirname \"$0\"`"/functions.sh
+  source "`dirname \"$0\"`"/spinny.sh
+fi
 title "myScaffolder"
 # Variables
 path_in=""
 qcov=90
 kmer=64
 last_cmd=""
-# Slurm JOB (sbatch --mem 32GB -o myscaff.%N.%j.out -e myscaff.%N.%j.err --cpus-per-task=12 -p fast myScaffolder.sh -i myscaff.conf)
+# Slurm JOB (sbatch --export all --mem 32GB -o myscaff.%N.%j.out -e myscaff.%N.%j.err --cpus-per-task=12 -p fast myScaffolder.sh -i myscaff.conf)
 if command -v sbatch &> /dev/null
 then
+  slurm_bool=true
   path_tmp="/shared/projects/gv/dgoudenege/tmp"
   threads=$(printenv SLURM_CPUS_ON_NODE)
-  memory=$(sacct --format=reqmem -j 35384664 | tail -n 1 | grep -Po "\d+")
-  slurm_bool=true
+  memory=$(expr $SLURM_MEM_PER_NODE / 1024)
+  module load python/3.9
   module load fastp/0.23.1
   module load abyss/2.2.1
   module load spades/3.15.2
@@ -214,10 +224,11 @@ then
   module load ragtag/1.0.2
   module load seqkit/2.1.0
   module load jq/1.6
-  export PYTHONPATH=/home/umr8227/gv/dgoudenege/.local/lib/python3.8/site-packages/
-  FASTA2CAMSA=/home/umr8227/gv/dgoudenege/.local/lib/python3.8/site-packages/camsa/utils/fasta/fasta2camsa_points.py
-  RUN_CAMSA=/home/umr8227/gv/dgoudenege/.local/lib/python3.8/site-packages/camsa/run_camsa.py
-  CAMSA_POINTS2FASTA=/home/umr8227/gv/dgoudenege/.local/lib/python3.8/site-packages/camsa/utils/fasta/camsa_points2fasta.py
+  module load mummer4/4.0.0rc1
+  export PYTHONPATH="${PYTHONPATH}:/home/umr8227/gv/dgoudenege/.local/lib/python3.9/site-packages/:/usr/lib/python3/dist-packages:/shared/software/miniconda/envs/python-pytorch-tensorflow-3.9-1.11.0-2.6.2/lib/python3.9/site-packages"
+  FASTA2CAMSA=/home/umr8227/gv/dgoudenege/.local/lib/python3.9/site-packages/camsa/utils/fasta/fasta2camsa_points.py
+  RUN_CAMSA=/home/umr8227/gv/dgoudenege/.local/lib/python3.9/site-packages/camsa/run_camsa.py
+  CAMSA_POINTS2FASTA=/home/umr8227/gv/dgoudenege/.local/lib/python3.9/site-packages/camsa/utils/fasta/camsa_points2fasta.py
 # Local JOB
 else slurm_bool=false
   path_tmp="/tmp"
@@ -396,6 +407,7 @@ echo -ne "| ${colortitle}qcov %       : ${NC}${qcov}" ; rjust $((16+${#qcov})) t
 echo -ne "| ${colortitle}Kmer size    : ${NC}${kmer}" ; rjust $((16+${#kmer})) true
 echo -ne "| ${colortitle}Threads      : ${NC}${threads}" ; rjust $((16+${#threads})) true
 echo -ne "| ${colortitle}Memory       : ${NC}${memory}G" ; rjust $((17+${#memory})) true
+if [ "$slurm_bool" = true ]; then echo -ne "| ${colortitle}Slurm job    : ${NC}${job_id}" ; rjust $((16+${#job_id})) true ; fi
 echo -ne "| ${colortitle}Working dir  : ${NC}${tmp}" ; rjust $((16+${#tmp})) true
 echo -e "╰───────────────────────────────────────────────────────────────────────────╯"
 
@@ -575,6 +587,7 @@ for strain in "${array_strain[@]}"
     # ***** RagTag *****#
     if [ "$not_ragtag" = true ]
       then
+      if [ "$slurm_bool" = true ]; then module load ragtag/1.0.2 ; fi
       SPINNY_FRAMES=( "|       ⮡ ragtag                                                            |" "|       ⮡ ragtag .                                                          |" "|       ⮡ ragtag ..                                                         |" "|       ⮡ ragtag ...                                                        |" "|       ⮡ ragtag ....                                                       |" "|       ⮡ ragtag .....                                                      |")
       spinny::start
       for replicon in ${path_dir_ref}/*.fasta
@@ -589,6 +602,9 @@ for strain in "${array_strain[@]}"
       spinny::stop
     fi
     echo -ne "|       ⮡ ragtag" ; rjust "15" true
+
+    # bug with functools
+    if [ "$slurm_bool" = true ]; then module unload ragtag/1.0.2 ; fi
 
     # ***** ABySS-sealer (if reads available) *****#
     path_outdir_scaffold=${path_out}/Scaffolds
@@ -660,12 +676,12 @@ for strain in "${array_strain[@]}"
         do
         target_name=$(basename ${array_strain_ref[$i]} | sed s/".fasta"/""/)
         path_contigs_scaffolds_ref=${path_outdir_scaffold}/${target_name}_contigs_scaffolds.fasta
-        last_cmd=$(echo "python3 ${FASTA2CAMSA} ${path_contigs_scaffolds_ref} ${path_contigs_scaffolds_ref} -o scaffolds_points" | tee -a ${path_log})
-        python3 ${FASTA2CAMSA} ${path_contigs_scaffolds_ref} ${path_contigs_scaffolds_ref} -o scaffolds_points 2>>${path_log} || display_error "merging for '${strain}'" true "merging"
-        last_cmd=$(echo python3 "${RUN_CAMSA} scaffolds_points/${target_name}_contigs_scaffolds.camsa.points -o ." | tee -a ${path_log})
-        python3 ${RUN_CAMSA} scaffolds_points/${target_name}"_contigs_scaffolds.camsa.points" -o . 2>>${path_log} || display_error "merging for '${strain}'" true "merging"
-        last_cmd=$(echo "python3 ${CAMSA_POINTS2FASTA} --allow-singletons --points merged/merged.camsa.points --fasta ${path_contigs_scaffolds_ref} -o ${path_tmp_merged_camsa}" | tee -a ${path_log})
-        python3 ${CAMSA_POINTS2FASTA} --allow-singletons --points merged/merged.camsa.points --fasta ${path_contigs_scaffolds_ref} -o ${path_tmp_merged_camsa} 2>>${path_log} || display_error "merging for '${strain}'" true "merging"
+        last_cmd=$(echo "python ${FASTA2CAMSA} ${path_contigs_scaffolds_ref} ${path_contigs_scaffolds_ref} -o scaffolds_points" | tee -a ${path_log})
+        python ${FASTA2CAMSA} ${path_contigs_scaffolds_ref} ${path_contigs_scaffolds_ref} -o scaffolds_points 2>>${path_log} || display_error "merging for '${strain}'" true "merging"
+        last_cmd=$(echo "python ${RUN_CAMSA} scaffolds_points/${target_name}_contigs_scaffolds.camsa.points -o ." | tee -a ${path_log})
+        python ${RUN_CAMSA} scaffolds_points/${target_name}"_contigs_scaffolds.camsa.points" -o . 2>>${path_log} || display_error "merging for '${strain}'" true "merging"
+        last_cmd=$(echo "python ${CAMSA_POINTS2FASTA} --allow-singletons --points merged/merged.camsa.points --fasta ${path_contigs_scaffolds_ref} -o ${path_tmp_merged_camsa}" | tee -a ${path_log})
+        python ${CAMSA_POINTS2FASTA} --allow-singletons --points merged/merged.camsa.points --fasta ${path_contigs_scaffolds_ref} -o ${path_tmp_merged_camsa} 2>>${path_log} || display_error "merging for '${strain}'" true "merging"
         path_tmp_merged_camsa=${path_contigs_scaffolds_ref}
       done
       awk 'BEGIN {RS=">";FS="\n"} NR>1 {seq=""; for (i=2;i<=NF;i++) seq=seq$i; print ">"$1"\n"seq}' ${path_tmp_merged_camsa} > ${path_final_out}
@@ -743,6 +759,8 @@ for strain in "${array_strain[@]}"
 done
 echo -e "╰───────────────────────────────────────────────────────────────────────────╯"
 
-
+# Keep log
+echo "SUCCESS" >> ${path_log}
+mv ${path_log} ${path_out}/log.out
 # Remove temp folder
 rm -rf ${dir_tmp}
