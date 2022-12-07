@@ -215,7 +215,7 @@ then
   slurm_bool=true
   path_tmp="/shared/projects/gv/dgoudenege/tmp"
   threads=$(printenv SLURM_CPUS_ON_NODE)
-  memory=$(expr $SLURM_MEM_PER_NODE / 1024)
+  memory=$(expr $SLURM_MEM_PER_NODE / 1024 - 6)
   module load python/3.9
   module load fastp/0.23.1
   module load abyss/2.2.1
@@ -594,8 +594,12 @@ for strain in "${array_strain[@]}"
         do replicon_name=$(basename ${replicon} | sed s/".fasta"/""/)
         last_cmd=$(echo "${RAGTAG} scaffold -o ${path_tmp}/ragtag_${ref_name}_${replicon_name} ${replicon} ${path_outdir_assign}/${ref_name}_${replicon_name}.fasta" | tee -a ${path_log})
         ${RAGTAG} scaffold -o ${path_tmp}/ragtag_${ref_name}_${replicon_name} ${replicon} ${path_outdir_assign}/${ref_name}_${replicon_name}.fasta >> ${path_log} 2>&1 || display_error "ragtag for '${strain}' and replicon '${replicon_name}'" true "ragtag"
+        # WARING: output file change betwwen ragtag version
         if [ -f "${path_tmp}/ragtag_${ref_name}_${replicon_name}/ragtag.scaffold.fasta" ]
           then cp ${path_tmp}/ragtag_${ref_name}_${replicon_name}/ragtag.scaffold.fasta ${path_outdir_ragtag}/${ref_name}_${replicon_name}.fasta
+        fi
+        if [ -f "${path_tmp}/ragtag_${ref_name}_${replicon_name}/ragtag.scaffolds.fasta" ]
+          then cp ${path_tmp}/ragtag_${ref_name}_${replicon_name}/ragtag.scaffolds.fasta ${path_outdir_ragtag}/${ref_name}_${replicon_name}.fasta
         fi
       done
       rm -f ${path_outdir_assign}/*.fai
@@ -621,8 +625,8 @@ for strain in "${array_strain[@]}"
           replicon_name=$(basename ${replicon} | sed s/".fasta"/""/)
           if [ -f "${path_outdir_ragtag}/${ref_name}_${replicon_name}.fasta" ]
             then
-            last_cmd=$(echo "${ABYSSSEALER} -b${memory}G -k64 -k96 -k128 -k192 --threads ${threads} -o ${path_tmp}/${ref_name}_${replicon_name}_sealer_scaffolds -S ${path_outdir_ragtag}/${ref_name}_${replicon_name}.fasta ${path_trim_r1} ${path_trim_r2}" | tee -a ${path_log})
-            ${ABYSSSEALER} -b${memory}G -k64 -k96 -k128 -k192 --threads ${threads} -o ${path_tmp}/${ref_name}_${replicon_name}_sealer_scaffolds -S ${path_outdir_ragtag}/${ref_name}_${replicon_name}.fasta ${path_trim_r1} ${path_trim_r2} >> ${path_log} 2>&1 || display_error "abyss-sealer for '${strain}' and replicon '${replicon_name}'" true "abyss-sealer"
+            last_cmd=$(echo "${ABYSSSEALER} -b${memory}G -k64 -k96 -k128 --threads ${threads} -o ${path_tmp}/${ref_name}_${replicon_name}_sealer_scaffolds -S ${path_outdir_ragtag}/${ref_name}_${replicon_name}.fasta ${path_trim_r1} ${path_trim_r2}" | tee -a ${path_log})
+            ${ABYSSSEALER} -b${memory}G -k64 -k96 -k128 --threads ${threads} -o ${path_tmp}/${ref_name}_${replicon_name}_sealer_scaffolds -S ${path_outdir_ragtag}/${ref_name}_${replicon_name}.fasta ${path_trim_r1} ${path_trim_r2} >> ${path_log} 2>&1 || display_error "abyss-sealer for '${strain}' and replicon '${replicon_name}'" true "abyss-sealer"
           fi  
         done
         cat ${path_tmp}/${ref_name}_*_sealer_scaffolds_scaffold.fa > ${path_tmp}/${ref_name}_sealer.fasta
