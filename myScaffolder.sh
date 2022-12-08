@@ -192,14 +192,22 @@ function nucmer_cov_filter {
 # ************************************************************************* #
 # *****                        INITIALIZATION                         ***** #
 # ************************************************************************* #
-# Slurm path
+# Slurm path (sbatch --export all --mem 32GB -o myscaff.%N.%j.out -e myscaff.%N.%j.err --cpus-per-task=12 -p fast myScaffolder.sh -i myscaff.conf)
 if [ -n $SLURM_JOB_ID ] && [ "$SLURM_JOB_ID" != "" ]
   then
+  slurm_bool=true
   job_id="$SLURM_JOB_ID"
   src_path=$(scontrol show job $SLURM_JOBID | awk -F= '/Command=/{print $2}' | cut -d " " -f 1)
   source "`dirname \"$src_path\"`"/functions.sh
   source "`dirname \"$src_path\"`"/spinny.sh
+  source "`dirname \"$src_path\"`"/slurm_env.sh
 else
+  path_tmp="/tmp"
+  threads=0
+  memory=0
+  FASTA2CAMSA=$(which fasta2camsa_points.py)
+  RUN_CAMSA=$(which run_camsa.py)
+  CAMSA_POINTS2FASTA=$(which camsa_points2fasta.py)
   source "`dirname \"$0\"`"/functions.sh
   source "`dirname \"$0\"`"/spinny.sh
 fi
@@ -209,35 +217,6 @@ path_in=""
 qcov=90
 kmer=64
 last_cmd=""
-# Slurm JOB (sbatch --export all --mem 32GB -o myscaff.%N.%j.out -e myscaff.%N.%j.err --cpus-per-task=12 -p fast myScaffolder.sh -i myscaff.conf)
-if command -v sbatch &> /dev/null
-then
-  slurm_bool=true
-  path_tmp="/shared/projects/gv/dgoudenege/tmp"
-  threads=$(printenv SLURM_CPUS_ON_NODE)
-  memory=$(expr $SLURM_MEM_PER_NODE / 1024 - 6)
-  module load python/3.9
-  module load fastp/0.23.1
-  module load abyss/2.2.1
-  module load spades/3.15.2
-  module load blast/2.13.0
-  module load ragtag/1.0.2
-  module load seqkit/2.1.0
-  module load jq/1.6
-  module load mummer4/4.0.0rc1
-  export PYTHONPATH="${PYTHONPATH}:/home/umr8227/gv/dgoudenege/.local/lib/python3.9/site-packages/:/usr/lib/python3/dist-packages:/shared/software/miniconda/envs/python-pytorch-tensorflow-3.9-1.11.0-2.6.2/lib/python3.9/site-packages"
-  FASTA2CAMSA=/home/umr8227/gv/dgoudenege/.local/lib/python3.9/site-packages/camsa/utils/fasta/fasta2camsa_points.py
-  RUN_CAMSA=/home/umr8227/gv/dgoudenege/.local/lib/python3.9/site-packages/camsa/run_camsa.py
-  CAMSA_POINTS2FASTA=/home/umr8227/gv/dgoudenege/.local/lib/python3.9/site-packages/camsa/utils/fasta/camsa_points2fasta.py
-# Local JOB
-else slurm_bool=false
-  path_tmp="/tmp"
-  threads=0
-  memory=0
-  FASTA2CAMSA=$(which fasta2camsa_points.py)
-  RUN_CAMSA=$(which run_camsa.py)
-  CAMSA_POINTS2FASTA=$(which camsa_points2fasta.py)
-fi
 # Tools $PATH
 COMPRESSOR=$(which pigz) # gzip
 FASTP=$(which fastp)
