@@ -154,9 +154,7 @@ function git_folder () {
   token=${3}
   commit_desc=${4}
   # if any commit description use date
-  if [[ "${commit_desc}" == "" ]]
-    then commit_desc=$(date '+%Y-%m-%d')
-  fi
+  if [[ "${commit_desc}" == "" ]]; then commit_desc=$(date '+%Y-%m-%d'); fi
   src_path=$(pwd)
   cd ${path}
   git add *
