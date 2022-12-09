@@ -831,5 +831,4 @@ printf "╯\n"
 echo "SUCCESS" >> ${path_log}
 mv ${path_log} ${path_out}/log.out
 # Remove temp folder
-# rm -rf ${dir_tmp}
-
+rm -rf ${dir_tmp}
