@@ -156,7 +156,7 @@ function git_folder () {
   # if any commit description use date
   if [[ "${commit_desc}" == "" ]]
     then commit_desc=$(date '+%Y-%m-%d')
-  fi 
+  fi
   src_path=$(pwd)
   cd ${path}
   git add *
