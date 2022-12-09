@@ -152,10 +152,15 @@ function git_folder () {
   repo=${1}
   path=${2}
   token=${3}
+  commit_desc=${4}
+  # if any commit description use date
+  if [[ "${commit_desc}" == "" ]]
+    then commit_desc=$(date '+%Y-%m-%d')
+  fi 
   src_path=$(pwd)
   cd ${path}
   git add *
-  git commit -m "$(date '+%Y-%m-%d')"
+  git commit -m "\"${commit_desc}\""
   git push https://${token}@github.com/dooguypapua/${repo}.git
   cd ${src_path}
 }

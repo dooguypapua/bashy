@@ -649,38 +649,35 @@ for strain in "${array_strain[@]}"
     # ***** ABySS-sealer (if reads available) *****#
     path_outdir_scaffold=${path_out}/Scaffolds
     mkdir -p ${path_outdir_scaffold}
-    # path_scaffold_out=${path_outdir_scaffold}/${ref_name}_abyss-sealer.fasta
-    # if [[ "$path_r1" != "." || ${bool_change_qcov} == true || ${bool_change_kmer} == true || ${bool_change_contigs} == true || ${bool_change_path_reads} == true ]]
-    #   then
-    #   if [[ ! -s "${path_scaffold_out}" || ${bool_change_qcov} == true || ${bool_change_kmer} == true || ${bool_change_contigs} == true || ${bool_change_path_reads} == true ]]
-    #     then
-    #     SPINNY_FRAMES=( "|       ⮡ abyss-sealer                                                      |" "|       ⮡ abyss-sealer .                                                    |" "|       ⮡ abyss-sealer ..                                                   |" "|       ⮡ abyss-sealer ...                                                  |" "|       ⮡ abyss-sealer ....                                                 |" "|       ⮡ abyss-sealer .....                                                |")
-    #     spinny::start
-    #     for replicon in ${path_dir_ref}/*.fasta
-    #       do
-    #       replicon_name=$(basename ${replicon} | sed s/".fasta"/""/)
-    #       if [ -f "${path_outdir_ragtag}/${ref_name}_${replicon_name}.fasta" ]
-    #         then
-    #         last_cmd=$(echo "${ABYSSSEALER} -b${memory}G -k64 -k96 -k128 --threads ${threads} -o ${path_tmp}/${ref_name}_${replicon_name}_sealer_scaffolds -S ${path_outdir_ragtag}/${ref_name}_${replicon_name}.fasta ${path_trim_r1} ${path_trim_r2}" | tee -a ${path_log})
-    #         ${ABYSSSEALER} -b${memory}G -k64 -k96 -k128 --threads ${threads} -o ${path_tmp}/${ref_name}_${replicon_name}_sealer_scaffolds -S ${path_outdir_ragtag}/${ref_name}_${replicon_name}.fasta ${path_trim_r1} ${path_trim_r2} >> ${path_log} 2>&1 || display_error "abyss-sealer for '${strain}' and replicon '${replicon_name}'" true "abyss-sealer"
-    #       fi  
-    #     done
-    #     cat ${path_tmp}/${ref_name}_*_sealer_scaffolds_scaffold.fa > ${path_tmp}/${ref_name}_sealer.fasta
-    #     last_cmd=$(echo "${SEQKIT} rmdup -n ${path_tmp}/${ref_name}_sealer.fasta 2>>${path_log} | awk 'BEGIN {RS=\">\";FS=\"\\n\";OFS=""} NR>1 {print \">\"$1; $1=\"\"; print}' > ${path_scaffold_out}" | tee -a ${path_log})
-    #     ${SEQKIT} rmdup -n ${path_tmp}/${ref_name}_sealer.fasta 2>>${path_log} | awk 'BEGIN {RS=">";FS="\n";OFS=""} NR>1 {print ">"$1; $1=""; print}' > ${path_scaffold_out} 2>>${path_log} || display_error "rmdup for '${strain} ref:${ref_name}'" true "abyss-sealer"
-    #     spinny::stop
-    #     echo -ne "|       ⮡ abyss-sealer" ; rjust "21" true
-    #   else
-    #     echo -ne "|       ${color3}⮡ abyss-sealer${NC}" ; rjust "21" true
-    #   fi
-    # # If no reads
-    # else
-    #   path_scaffold_out=${path_outdir_scaffold}/${ref_name}_ragtag.fasta
-    #   cat ${path_outdir_ragtag}/${ref_name}_*.fasta > ${path_scaffold_out}
-    # fi
-
-path_scaffold_out=${path_outdir_scaffold}/${ref_name}_ragtag.fasta
-cat ${path_outdir_ragtag}/${ref_name}_*.fasta > ${path_scaffold_out}
+    path_scaffold_out=${path_outdir_scaffold}/${ref_name}_abyss-sealer.fasta
+    if [[ "$path_r1" != "." || ${bool_change_qcov} == true || ${bool_change_kmer} == true || ${bool_change_contigs} == true || ${bool_change_path_reads} == true ]]
+      then
+      if [[ ! -s "${path_scaffold_out}" || ${bool_change_qcov} == true || ${bool_change_kmer} == true || ${bool_change_contigs} == true || ${bool_change_path_reads} == true ]]
+        then
+        SPINNY_FRAMES=( "|       ⮡ abyss-sealer                                                      |" "|       ⮡ abyss-sealer .                                                    |" "|       ⮡ abyss-sealer ..                                                   |" "|       ⮡ abyss-sealer ...                                                  |" "|       ⮡ abyss-sealer ....                                                 |" "|       ⮡ abyss-sealer .....                                                |")
+        spinny::start
+        for replicon in ${path_dir_ref}/*.fasta
+          do
+          replicon_name=$(basename ${replicon} | sed s/".fasta"/""/)
+          if [ -f "${path_outdir_ragtag}/${ref_name}_${replicon_name}.fasta" ]
+            then
+            last_cmd=$(echo "${ABYSSSEALER} -b${memory}G -k64 -k96 -k128 --threads ${threads} -o ${path_tmp}/${ref_name}_${replicon_name}_sealer_scaffolds -S ${path_outdir_ragtag}/${ref_name}_${replicon_name}.fasta ${path_trim_r1} ${path_trim_r2}" | tee -a ${path_log})
+            ${ABYSSSEALER} -b${memory}G -k64 -k96 -k128 --threads ${threads} -o ${path_tmp}/${ref_name}_${replicon_name}_sealer_scaffolds -S ${path_outdir_ragtag}/${ref_name}_${replicon_name}.fasta ${path_trim_r1} ${path_trim_r2} >> ${path_log} 2>&1 || display_error "abyss-sealer for '${strain}' and replicon '${replicon_name}'" true "abyss-sealer"
+          fi  
+        done
+        cat ${path_tmp}/${ref_name}_*_sealer_scaffolds_scaffold.fa > ${path_tmp}/${ref_name}_sealer.fasta
+        last_cmd=$(echo "${SEQKIT} rmdup -n ${path_tmp}/${ref_name}_sealer.fasta 2>>${path_log} | awk 'BEGIN {RS=\">\";FS=\"\\n\";OFS=""} NR>1 {print \">\"$1; $1=\"\"; print}' > ${path_scaffold_out}" | tee -a ${path_log})
+        ${SEQKIT} rmdup -n ${path_tmp}/${ref_name}_sealer.fasta 2>>${path_log} | awk 'BEGIN {RS=">";FS="\n";OFS=""} NR>1 {print ">"$1; $1=""; print}' > ${path_scaffold_out} 2>>${path_log} || display_error "rmdup for '${strain} ref:${ref_name}'" true "abyss-sealer"
+        spinny::stop
+        echo -ne "|       ⮡ abyss-sealer" ; rjust "21" true
+      else
+        echo -ne "|       ${color3}⮡ abyss-sealer${NC}" ; rjust "21" true
+      fi
+    # If no reads
+    else
+      path_scaffold_out=${path_outdir_scaffold}/${ref_name}_ragtag.fasta
+      cat ${path_outdir_ragtag}/${ref_name}_*.fasta > ${path_scaffold_out}
+    fi
 
     # ***** FILTERING *****# contigs due to repeat
     path_scaffolds_out=${path_outdir_scaffold}/${ref_name}_scaffolds.fasta
