@@ -160,7 +160,7 @@ function git_folder () {
   src_path=$(pwd)
   cd ${path}
   git add *
-  git commit -m "\"${commit_desc}\""
+  git commit -m "${commit_desc}"
   git push https://${token}@github.com/dooguypapua/${repo}.git
   cd ${src_path}
 }
