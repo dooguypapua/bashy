@@ -316,7 +316,7 @@ else
   taxdump_is_new=false
 fi
 # Rsync exclude patterns
-echo -e "*_wgsmaster.gbff.gz\n*_assembly_structure\nannotation_hashes.txt\n*_assembly_report.txt\n*_cds_from_genomic.fna.gz\n*_feature_table.txt.gz\n*_genomic.gff.gz\n*_genomic.gtf.gz\n*_genomic_gaps.txt.gz\n*_protein.gpff.gz\n*_rna_from_genomic.fna.gz\n*_translated_cds.faa.gz\nassembly_status.txt\n" > ${rsync_exclude}
+echo -e "*_wgsmaster.gbff.gz\n*_assembly_structure\n*_assembly_stats.txt\nannotation_hashes.txt\n*_assembly_report.txt\n*_cds_from_genomic.fna.gz\n*_feature_table.txt.gz\n*_genomic.gff.gz\n*_genomic.gtf.gz\n*_genomic_gaps.txt.gz\n*_protein.gpff.gz\n*_rna_from_genomic.fna.gz\n*_translated_cds.faa.gz\nassembly_status.txt\nREADME.txt\n" > ${rsync_exclude}
 # Log file
 rm -f ${log}
 touch ${log}
@@ -526,9 +526,9 @@ for dl_line in $(cat ${download_urls})
       fi
       else
         progress ${percent_done} "${acc_name}" ${colorterm}
-      # Check genome folder
-      if [ ! -d $path_db_acc ] ; then
-        echo -e "$(basename $dl_line): rsync failed\n" >> ${log}
+      # Check genome folder and gbff file
+      if ! ls ${path_db_acc}/*.gbff.gz >/dev/null 2>&1; then
+        echo -e "$(basename $dl_line): rsync failed" >> ${log}
         ((cpt_rsync_failed++))
       fi
     fi
