@@ -9,7 +9,6 @@ function banner {
   echo -ne "|\n╰───────────────────────────────────────────────────────────────────╯\n"
 }
 
-
 function rjust {
   i=1
   repeat_space=$((67-${1}))
@@ -82,8 +81,7 @@ function summary {
   echo -e "╭─INFO──────────────────────────────────────────────────────────────╮"
   if [ ${elapse_stop} == true ]; then echo -ne "| ${colorred}⛔ Duration interruption${NC}" ; rjust 25 true ; fi
   echo -ne "| ${colortitle}Total       : ${NC}${nb_total}" ; rjust $((15+${#nb_total})) true
-  echo -ne "| ${colortitle}Refseq      : ${NC}${nb_refseq}" ; rjust $((15+${#nb_refseq})) true
-  echo -ne "| ${colortitle}Genbank     : ${NC}${nb_genbank}" ; rjust $((15+${#nb_genbank})) true
+  echo -ne "| ${colortitle}Sync        : ${NC}${nb_sync}" ; rjust $((15+${#nb_sync})) true
   if [[ "${cpt_download}" == "0" ]]; then
       echo -ne "| ${colortitle}Updated     : ${NC}Any" ; rjust 18 true
   else
@@ -115,8 +113,6 @@ function summary {
   echo -e "╰───────────────────────────────────────────────────────────────────╯\n"
   title "genomedl - finished"
 }
-
-
 
 function progress() {
     # progress percent text color
@@ -285,12 +281,12 @@ if [[ ! $? -eq 0 ]] ; then usage && display_error "Cannot create temp directory 
 rsync_out_ass_sum="${dir_tmp}/rsyncAssSum.txt"
 rsync_out_tax_dump="${dir_tmp}/rsyncTaxDump.txt"
 rsync_out_dl="${dir_tmp}/rsyncDL.txt"
-rsync_out_dl="${dir_tmp}/rsyncDL.txt"
 rsync_exclude="${dir_tmp}/rsyncExclude.txt"
 lineage_taxids="${dir_tmp}/lineage_taxids.txt"
 download_urls_refseq="${dir_tmp}/download_urls_refseq.txt"
 download_urls_genbank="${dir_tmp}/download_urls_genbank.txt"
 download_urls="${dir_tmp}/download_urls.txt"
+download_urls_final="${dir_tmp}/download_urls_filtered.txt"
 taxidlineage_dmp="${dir_tmp}/taxidlineage.dmp"
 nodes_dmp="${dir_tmp}/nodes.dmp"
 summary_sorted="${dir_tmp}/assembly_summary_sorted.txt"
@@ -415,7 +411,7 @@ elif [[ -z "${tax_ids}" && "${division}" == "PHG" ]]; then
   # Get nodes
   SPINNY_FRAMES=( " nodes extraction                                    |" " nodes extraction .                                  |" " nodes extraction ..                                 |" " nodes extraction ...                                |" " nodes extraction ....                               |" " nodes extraction .....                              |")
   spinny::start
-  tar xf ${cur_taxdump} -C ${dir_tmp} $(basename ${nodes_dmp}) 2>>${log}
+  tar xf ${cur_taxdump} -C ${dir_tmp} $(get_base ${nodes_dmp}) 2>>${log}
   spinny::stop
   # Lineage filtering
   SPINNY_FRAMES=( " gencode filtering                                   |" " gencode filtering .                                 |" " gencode filtering ..                                |" " gencode filtering ...                               |" " gencode filtering ....                              |" " gencode filtering .....                             |")
@@ -434,7 +430,7 @@ else
   # Get taxidlineage
   SPINNY_FRAMES=( " taxidlineage extraction                             |" " taxidlineage extraction .                           |" " taxidlineage extraction ..                          |" " taxidlineage extraction ...                         |" " taxidlineage extraction ....                        |" " taxidlineage extraction .....                       |")
   spinny::start
-  tar xf ${cur_taxdump} -C ${dir_tmp} $(basename ${taxidlineage_dmp}) 2>>${log}
+  tar xf ${cur_taxdump} -C ${dir_tmp} $(get_base ${taxidlineage_dmp}) 2>>${log}
   spinny::stop
   # Get only taxids in the lineage section
   SPINNY_FRAMES=( " taxids to lineage                                   |" " taxids to lineage .                                 |" " taxids to lineage ..                                |" " taxids to lineage ...                               |" " taxids to lineage ....                              |" " taxids to lineage .....                             |")
@@ -455,11 +451,12 @@ else
   spinny::stop
 fi
 # Count genomes
-totalGenome=$(wc -l "${path_db}/assembly_summary_taxids.txt" | cut -d " " -f 1)
+nb_total=$(wc -l "${path_db}/assembly_summary_taxids.txt" | cut -d " " -f 1)
 # Making url files 
 SPINNY_FRAMES=( " create url files                                    |" " create url files .                                  |" " create url files ..                                 |" " create url files ...                                |" " create url files ....                               |" " create url files .....                              |")
 spinny::start
 input_data=$(tail -n+3 "${path_db}/assembly_summary_taxids.txt" | cut -f 1,18,20 | tr "\t" "#") # replace tabs with alarm bell
+declare -A assArrayRefseqSrcFTPpath
 while IFS="#" read assembly_accession gbrs_paired_asm ftp_path
   do
   if [ "$ftp_path" != "na" ]; then
@@ -467,6 +464,7 @@ while IFS="#" read assembly_accession gbrs_paired_asm ftp_path
       echo ${ftp_path} >> ${download_urls_genbank}
     else
       echo "${gbrs_paired_asm}#${ftp_path}" >> ${download_urls_refseq}
+      assArrayRefseqSrcFTPpath["$gbrs_paired_asm"]=${ftp_path}
     fi
   fi
 done <<< "$input_data"
@@ -486,37 +484,53 @@ else
   touch ${download_urls_refseq}
 fi  
 cat ${download_urls_genbank} ${download_urls_refseq} > ${download_urls}
+# Create associative array for fast basename from URL
+declare -A assArrayURL
+while read -r dl_line; do
+  basename=$(get_base ${dl_line})
+  assArrayURL["$basename"]=${dl_line}
+  echo $basename >> ${dir_tmp}/list_all.txt
+done < ${download_urls}
+# End
 spinny::stop
-echo -ne " ${totalGenome} genomes" ; rjust $((23+${#totalGenome})) true
+echo -ne " ${nb_total} genomes" ; rjust $((23+${#nb_total})) true
 
-# ***** COUNT ***** #
-if [ -f ${download_urls} ] ; then nb_total=$(wc -l ${download_urls} | cut -d " " -f 1)
-else nb_total=0
-fi
-if [ -f ${download_urls} ] ; then nb_refseq=$(wc -l ${download_urls_refseq} | cut -d " " -f 1)
-else nb_refseq=0
-fi
-if [ -f ${download_urls} ] ; then nb_genbank=$(wc -l ${download_urls_genbank} | cut -d " " -f 1)
-else nb_genbank=0
+# ***** MISSING ***** #
+nb_sync=0
+if [[ ${update_rsync} = true ]]; then
+  cp ${download_urls} ${download_urls_final}
+  nb_sync=${nb_total}
+else
+  ls -1 ${path_db} > ${dir_tmp}/list_yet.txt
+  diff ${dir_tmp}/list_yet.txt ${dir_tmp}/list_all.txt | grep ">" | cut -d " " -f 2 > ${dir_tmp}/missing.txt
+  while read -r dl_line; do
+    echo ${assArrayURL["$dl_line"]} >> ${download_urls_final}
+    ((nb_sync++))
+  done < ${dir_tmp}/missing.txt
 fi
 
 # ***** SYNCHRONIZE ***** #
-echo -ne "| ${colortitle}Synchronize :${NC} ${nb_total} genomes" ; rjust $((23+${#nb_total})) true
-for dl_line in $(cat ${download_urls})
-    do
+if [[ ${nb_sync} -eq 0 ]]; then
+  echo -ne "| ${colortitle}Synchronize :${NC} up-to-date" ; rjust 25 false
+else
+  echo -ne "| ${colortitle}Synchronize :${NC} ${nb_sync} genomes" ; rjust $((23+${#nb_sync})) true
+  while read -r dl_line; do
     if [[ ! -z "${elapse_stop_sec}" && $(($SECONDS-start_time)) -ge ${elapse_stop_sec} ]]; then summary true ; exit 0 ; fi
     cpt_retry=1
-    acc_name=$(basename $dl_line | cut -d "_" -f 1,2)
-    path_db_acc="${path_db}/$(basename $dl_line)"
+    basename=$(get_base ${dl_line})
+    acc_name=$(echo $basename | cut -d "_" -f 1,2)
+    path_db_acc="${path_db}/$basename"
     rm -f ${rsync_out_dl}
     # Display progress
-    ((cpt_done++))     
-    percent_done=$(( ${cpt_done}*100/${totalGenome} ))
+    ((cpt_done++))
+    percent_done=$(( ${cpt_done}*100/${nb_sync} ))
     if [[ ${update_rsync} = true || ! -d ${path_db_acc} ]]; then
       while [ $cpt_retry -le $rsync_max_retry ]
           do
           progress ${percent_done} "${acc_name}/${cpt_retry}" ${colortitlel}
           rsync -r -u --no-motd --copy-links --contimeout=${contimeout} --itemize-changes --exclude-from=${rsync_exclude} ${dl_line} ${path_db}/ >${rsync_out_dl} 2>>${log} && break
+          # for some refseq GCF URL doesn't work try GCA URL
+          rsync -r -u --no-motd --copy-links --contimeout=${contimeout} --itemize-changes --exclude-from=${rsync_exclude} $(echo ${assArrayRefseqSrcFTPpath["$acc_name"]}"/" | sed s/"https"/"rsync"/g) ${path_db_acc} >${rsync_out_dl} 2>>${log} && break
           ((cpt_retry++))
       done
       if [ ! -s ${rsync_out_dl} ]; then
@@ -528,14 +542,15 @@ for dl_line in $(cat ${download_urls})
         progress ${percent_done} "${acc_name}" ${colorterm}
       # Check genome folder and gbff file
       if ! ls ${path_db_acc}/*.gbff.gz >/dev/null 2>&1; then
-        echo -e "$(basename $dl_line): rsync failed" >> ${log}
+        echo -e "${basename}: rsync failed" >> ${log}
         ((cpt_rsync_failed++))
       fi
     fi
     # Display percent done
     title "genomedl - rsync (${percent_done}%%)"
-done
-echo -ne '\e[1A\e[K'
+  done < ${download_urls_final}
+  echo -ne '\e[1A\e[K'
+fi
 echo -e "\n╰───────────────────────────────────────────────────────────────────╯"
 
 
@@ -560,24 +575,32 @@ arrayPid=()
 if [[ "${totalMissingFFN}" != "0" ]]; then
   echo -ne " ${totalMissingFFN} missing gene files" ; rjust $((34+${#totalMissingFFN})) true
   # CREATE PROCESS BASH
-  for ass_dir in ${path_db}/GC*
+  for ass_dir in ${path_db}/*
     do
     if [[ ! -z "${elapse_stop_sec}" && $(($SECONDS-start_time)) -ge ${elapse_stop_sec} ]]; then summary true ; exit 0 ; fi
     if ! ls ${ass_dir}/*_gene.ffn.gz 1> /dev/null 2>&1; then
       # Paths
       gbk_path=$(ls -1 ${ass_dir}/*.gbff.gz)
       ffn_path=$(echo "${gbk_path}" | sed s/"_genomic.gbff.gz"/"_gene.ffn"/)
-      acc_name=$(basename ${gbk_path} | sed s/"_genomic.gbff.gz"/""/)
+      acc_name=$(get_base ${gbk_path} | sed s/"_genomic.gbff.gz"/""/)
       org_name=$(zgrep -m 1 "SOURCE" ${gbk_path} | cut -d " " -f 7-  | tr ' ' '_' | tr '/' '-' | tr ':' '-' | cut -d "(" -f 1 | cut -d "=" -f 1)
       bash_process="${dir_tmp}/${acc_name}_extract.sh"
-      # Construct process bash
+      # Construct process bash / extract gene or CDS
       echo -e "gzip -d -c \"${gbk_path}\" 1>\"${dir_tmp}/${acc_name}.gbk\"" > ${bash_process}
       echo -e "${extractfeat} -sequence \"${dir_tmp}/${acc_name}.gbk\" -outseq \"${dir_tmp}/${acc_name}.ffn\" -type gene" >> ${bash_process}
       echo -e "if [ -s \"${dir_tmp}/${acc_name}.ffn\" ]; then" >> ${bash_process} # Check if file is empty due to bad gene tag in gbff
       echo -e "  sed -E s/\"\\s.+\"/\" extractfeat gene [${org_name}]\"/g \"${dir_tmp}/${acc_name}.ffn\" > ${ffn_path}" >> ${bash_process}
       echo -e "  gzip -f \"${ffn_path}\"" >> ${bash_process}
+      echo -e "else" >> ${bash_process}
+      echo -e "  ${extractfeat} -sequence \"${dir_tmp}/${acc_name}.gbk\" -outseq \"${dir_tmp}/${acc_name}.ffn\" -type cds" >> ${bash_process}
+      echo -e "  if [ -s \"${dir_tmp}/${acc_name}.ffn\" ]; then" >> ${bash_process} # Check if file is empty due to bad gene tag in gbff
+      echo -e "    sed -E s/\"\\s.+\"/\" extractfeat cds [${org_name}]\"/g \"${dir_tmp}/${acc_name}.ffn\" > ${ffn_path}" >> ${bash_process}
+      echo -e "    gzip -f \"${ffn_path}\"" >> ${bash_process}
+      echo -e "  else" >> ${bash_process}
+      echo -e "    touch ${ffn_path}" >> ${bash_process}
+      echo -e "  fi" >> ${bash_process}
       echo -e "fi" >> ${bash_process}
-      echo -e "rm -f \"${dir_tmp}/${acc_name}.gbk\" \"${dir_tmp}/${acc_name}.ffn\"" >> ${bash_process}
+      #echo -e "rm -f \"${dir_tmp}/${acc_name}.gbk\" \"${dir_tmp}/${acc_name}.ffn\"" >> ${bash_process}
       # Launch process
       bash ${bash_process} 2>>${log} &
       arrayPid+=($!)
@@ -614,7 +637,7 @@ if [ ${division} == "PHG" ]; then
         ffn_path=$(echo "${gbk_path}" | sed s/"_genomic.gbff.gz"/"_phanotate.ffn"/)
         faa_path=$(echo "${gbk_path}" | sed s/"_genomic.gbff.gz"/"_phanotate.faa"/)
         rm -f ${ass_dir}/*.dmnd
-        acc_name=$(basename ${gbk_path} | sed s/"_genomic.gbff.gz"/""/)    
+        acc_name=$(get_base ${gbk_path} | sed s/"_genomic.gbff.gz"/""/)    
         org_name=$(zgrep -m 1 "SOURCE" ${gbk_path} | cut -d " " -f 7- | tr ' ' '_' | tr '/' '-' | tr ':' '-' | cut -d "(" -f 1 | cut -d "=" -f 1)
         bash_process="${dir_tmp}/${acc_name}_phanotate.sh"
         # Construct process bash
@@ -642,7 +665,7 @@ if [ ${division} == "PHG" ]; then
   fi
 fi
 
-# ***** Prodigal ***** # (for missing bacteria FAA)
+# ***** Prodigal ***** # (for missing bacteria genes/CDS)
 if [[ ! -z "${elapse_stop_sec}" && $(($SECONDS-start_time)) -ge ${elapse_stop_sec} ]]; then summary true ; exit 0 ; fi
 if [ ${division} == "BCT" ]; then
   echo -ne "| ${colortitle}Prodigal    :${NC}"
@@ -665,7 +688,7 @@ if [ ${division} == "BCT" ]; then
         faa_path=$(echo ${gbk_path} | sed s/"_genomic.gbff.gz"/"_protein.faa"/)
         ffn_path=$(echo ${gbk_path} | sed s/"_genomic.gbff.gz"/"_gene.ffn"/)
         rm -f ${ass_dir}/*.dmnd
-        acc_name=$(basename ${gbk_path} | sed s/"_genomic.gbff.gz"/""/)          
+        acc_name=$(get_base ${gbk_path} | sed s/"_genomic.gbff.gz"/""/)          
         org_name=$(zgrep -m 1 "SOURCE" ${gbk_path} | cut -d " " -f 7- | tr ' ' '_' | tr '/' '-' | tr ':' '-' | cut -d "(" -f 1 | cut -d "=" -f 1)
         bash_process="${dir_tmp}/${acc_name}_prodigal.sh"
         # Construct process bash

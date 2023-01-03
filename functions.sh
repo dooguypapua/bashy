@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 
 
+#***** Fast basename *****#
+function get_base() {
+  set -- "${1%"${1##*[!/]}"}"
+  printf '%s\n' "${1##*/}"
+}
+
 #***** Add border to text *****#
 function border () {
     local str="$*"      # Put all arguments into single string
