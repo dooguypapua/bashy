@@ -74,7 +74,7 @@ function usage {
 }
 
 function summary {
-  title "genomedl - summary"
+  title "genomedl | summary"
   elapse_stop=${1}
   # ***** COUNT ***** #
   if [ ${elapse_stop} == true ]; then echo -e "\n╰───────────────────────────────────────────────────────────────────╯" ; fi
@@ -83,7 +83,7 @@ function summary {
   echo -ne "| ${colortitle}Total       : ${NC}${nb_total}" ; rjust $((15+${#nb_total})) true
   echo -ne "| ${colortitle}Sync        : ${NC}${nb_sync}" ; rjust $((15+${#nb_sync})) true
   if [[ "${cpt_download}" == "0" ]]; then
-      echo -ne "| ${colortitle}Updated     : ${NC}Any" ; rjust 18 true
+      echo -ne "| ${colortitle}Updated     : ${NC}any" ; rjust 18 true
   else
       echo -ne "| ${colortitle}Updated     : ${NC}${cpt_download}" ; rjust $((15+${#cpt_download})) true
   fi
@@ -111,7 +111,7 @@ function summary {
   rm -rf ${dir_tmp}
   # Final display
   echo -e "╰───────────────────────────────────────────────────────────────────╯\n"
-  title "genomedl - finished"
+  title "genomedl | finished"
 }
 
 function progress() {
@@ -146,7 +146,7 @@ function parallel_progress() {
   arrayPid=("${new_arrayPid[@]}")   
   percent_done=$(( ${cpt_done}*100/${total} ))
   progress $percent_done
-  title "genomedl - ${title_str} (${percent_done}%%)"
+  title "genomedl | ${title_str} (${percent_done}%%)"
 }
 
 function pwait() {
@@ -164,7 +164,7 @@ function pwait() {
 # ************************************************************************* #
 source "`dirname \"$0\"`"/functions.sh
 source "`dirname \"$0\"`"/spinny.sh
-title "genomedl - running"
+title "genomedl | running"
 # ***** INITIALIZATION ***** #
 # Variables
 path_db=""
@@ -331,7 +331,7 @@ else
 fi
 echo -ne "| ${colortitle}Division    : ${NC}${division} (${division_title})" ; rjust $((18+${#division}+${#division_title})) true
 if [[ -z "${tax_ids}" ]]; then
-  echo -ne "| ${colortitle}Taxonomy ID : ${NC}All" ; rjust 18 true
+  echo -ne "| ${colortitle}Taxonomy ID : ${NC}all" ; rjust 18 true
 else
   echo -ne "| ${colortitle}Taxonomy ID : ${NC}${tax_ids}" ; rjust $((15+${#tax_ids})) true
 fi
@@ -451,7 +451,7 @@ else
   spinny::stop
 fi
 # Count genomes
-nb_total=$(wc -l "${path_db}/assembly_summary_taxids.txt" | cut -d " " -f 1)
+nb_total=$(grep -cPv "^#" ${path_db}/assembly_summary_taxids.txt)
 # Making url files 
 SPINNY_FRAMES=( " create url files                                    |" " create url files .                                  |" " create url files ..                                 |" " create url files ...                                |" " create url files ....                               |" " create url files .....                              |")
 spinny::start
@@ -495,25 +495,49 @@ done < ${download_urls}
 spinny::stop
 echo -ne " ${nb_total} genomes" ; rjust $((23+${#nb_total})) true
 
-# ***** MISSING ***** #
+# ***** COMPARE NEW and OLD assemblies ***** #
+echo -ne "| ${colortitle}Synchronize :${NC}"
 nb_sync=0
+nb_removed=0
+# Get previous genome folder
+ls -1 ${path_db} | grep -P "^GC" > ${dir_tmp}/list_yet.txt
+# Check new genome
+SPINNY_FRAMES=( " check new genomes                                   |" " check new genomes .                                 |" " check new genomes ..                                |" " check new genomes ...                               |" " check new genomes ....                              |" " check new genomes .....                             |")
+spinny::start
 if [[ ${update_rsync} = true ]]; then
   cp ${download_urls} ${download_urls_final}
   nb_sync=${nb_total}
 else
-  ls -1 ${path_db} > ${dir_tmp}/list_yet.txt
   diff ${dir_tmp}/list_yet.txt ${dir_tmp}/list_all.txt | grep ">" | cut -d " " -f 2 > ${dir_tmp}/missing.txt
   while read -r dl_line; do
     echo ${assArrayURL["$dl_line"]} >> ${download_urls_final}
     ((nb_sync++))
   done < ${dir_tmp}/missing.txt
 fi
+spinny::stop
+# Check removed/replaced genomes
+SPINNY_FRAMES=( " check deleted genomes                               |" " check deleted genomes .                             |" " check deleted genomes ..                            |" " check deleted genomes ...                         |" " check deleted genomes ....                          |" " check deleted genomes .....                         |")
+spinny::start
+diff ${dir_tmp}/list_yet.txt ${dir_tmp}/list_all.txt | grep "<" | cut -d " " -f 2 > ${dir_tmp}/removed.txt
+  while read -r rm_line; do
+    rm -rf ${path_db}/${rm_line} 2>>${log}
+    ((nb_removed++))
+  done < ${dir_tmp}/removed.txt
+spinny::stop
+echo -ne " done" ; rjust 19 true
+
+# ***** DELETE replaced/removed genomes ***** #
+if [[ ${nb_removed} -eq 0 ]]; then
+  echo -ne "| ${colortitle}Deleting    :${NC} up-to-date" ; rjust 25 true
+else
+  echo -ne "| ${colortitle}Deleting    :${NC} ${nb_removed} genomes" ; rjust $((23+${#nb_removed})) true
+fi
 
 # ***** SYNCHRONIZE ***** #
 if [[ ${nb_sync} -eq 0 ]]; then
-  echo -ne "| ${colortitle}Synchronize :${NC} up-to-date" ; rjust 25 false
+  echo -ne "| ${colortitle}Downloading :${NC} up-to-date" ; rjust 25 false
 else
-  echo -ne "| ${colortitle}Synchronize :${NC} ${nb_sync} genomes" ; rjust $((23+${#nb_sync})) true
+  echo -ne "| ${colortitle}Downloading :${NC} ${nb_sync} genomes" ; rjust $((23+${#nb_sync})) true
   while read -r dl_line; do
     if [[ ! -z "${elapse_stop_sec}" && $(($SECONDS-start_time)) -ge ${elapse_stop_sec} ]]; then summary true ; exit 0 ; fi
     cpt_retry=1
@@ -547,7 +571,7 @@ else
       fi
     fi
     # Display percent done
-    title "genomedl - rsync (${percent_done}%%)"
+    title "genomedl | rsync (${percent_done}%%)"
   done < ${download_urls_final}
   echo -ne '\e[1A\e[K'
 fi
@@ -565,17 +589,17 @@ echo -e "╭─POSTPROCESSING─────────────────
 
 # ***** FFN ***** #
 echo -ne "| ${colortitle}FFN files   :${NC}"
-title "genomedl - ffn"
+title "genomedl | ffn"
 SPINNY_FRAMES=( " check missing                                       |" " check missing .                                     |" " check missing ..                                    |" " check missing ...                                   |" " check missing ....                                  |" " check missing .....                                 |")
 spinny::start
-totalMissingFFN=$((${nb_total}-cpt_rsync_failed-$(ls -1 ${path_db}/*/*_gene.ffn.gz 2>/dev/null | wc -l)))
+totalMissingFFN=$((${nb_total}-${cpt_rsync_failed}-$(find ${path_db}/GC* -type f -name '*_gene.ffn.gz' | wc -l)))
 spinny::stop
 cpt_done=0
 arrayPid=()
-if [[ "${totalMissingFFN}" != "0" ]]; then
+if [[ ${totalMissingFFN} -gt 0 ]]; then
   echo -ne " ${totalMissingFFN} missing gene files" ; rjust $((34+${#totalMissingFFN})) true
   # CREATE PROCESS BASH
-  for ass_dir in ${path_db}/*
+  for ass_dir in ${path_db}/GC*
     do
     if [[ ! -z "${elapse_stop_sec}" && $(($SECONDS-start_time)) -ge ${elapse_stop_sec} ]]; then summary true ; exit 0 ; fi
     if ! ls ${ass_dir}/*_gene.ffn.gz 1> /dev/null 2>&1; then
@@ -596,8 +620,8 @@ if [[ "${totalMissingFFN}" != "0" ]]; then
       echo -e "  if [ -s \"${dir_tmp}/${acc_name}.ffn\" ]; then" >> ${bash_process} # Check if file is empty due to bad gene tag in gbff
       echo -e "    sed -E s/\"\\s.+\"/\" extractfeat cds [${org_name}]\"/g \"${dir_tmp}/${acc_name}.ffn\" > ${ffn_path}" >> ${bash_process}
       echo -e "    gzip -f \"${ffn_path}\"" >> ${bash_process}
-      echo -e "  else" >> ${bash_process}
-      echo -e "    touch ${ffn_path}" >> ${bash_process}
+      echo -e "  else" >> ${bash_process} # if any gene or CDS create an empty file
+      echo -e "    touch ${ffn_path}.gz" >> ${bash_process}
       echo -e "  fi" >> ${bash_process}
       echo -e "fi" >> ${bash_process}
       #echo -e "rm -f \"${dir_tmp}/${acc_name}.gbk\" \"${dir_tmp}/${acc_name}.ffn\"" >> ${bash_process}
@@ -612,17 +636,17 @@ if [[ "${totalMissingFFN}" != "0" ]]; then
   rm -f "${dir_tmp}/*_extract.sh"
   echo -e '\e[1A\e[K'
 else
-  echo -ne " Any missing gene file" ; rjust 36 true
+  echo -ne " any missing gene file" ; rjust 36 true
 fi
 
 # ***** Phanotate ***** # (for phage)
 if [[ ! -z "${elapse_stop_sec}" && $(($SECONDS-start_time)) -ge ${elapse_stop_sec} ]]; then summary true ; exit 0 ; fi
 if [ ${division} == "PHG" ]; then
   echo -ne "| ${colortitle}Phanotate   :${NC}"
-  title "genomedl - phanotate"
+  title "genomedl | phanotate"
   SPINNY_FRAMES=( " check missing                                       |" " check missing .                                     |" " check missing ..                                    |" " check missing ...                                   |" " check missing ....                                  |" " check missing .....                                 |")
   spinny::start
-  totalMissingPhanotateFFN=$((${nb_total}-${cpt_rsync_failed}-$(ls -1 ${path_db}/*/*_phanotate.ffn.gz 2>/dev/null | wc -l)))
+  totalMissingPhanotateFFN=$((${nb_total}-${cpt_rsync_failed}-$(find ${path_db}/GC* -type f -name '*_phanotate.ffn.gz' | wc -l)))
   spinny::stop
   cpt_done=0
   arrayPid=()
@@ -661,7 +685,7 @@ if [ ${division} == "PHG" ]; then
     rm -f "${dir_tmp}/*_phanotate.sh"
     echo -e '\e[1A\e[K'
   else
-    echo -ne " Any missing phanotate file" ; rjust 41 true
+    echo -ne " any missing phanotate file" ; rjust 41 true
   fi
 fi
 
@@ -669,10 +693,10 @@ fi
 if [[ ! -z "${elapse_stop_sec}" && $(($SECONDS-start_time)) -ge ${elapse_stop_sec} ]]; then summary true ; exit 0 ; fi
 if [ ${division} == "BCT" ]; then
   echo -ne "| ${colortitle}Prodigal    :${NC}"
-  title "genomedl - prodigal"
+  title "genomedl | prodigal"
   SPINNY_FRAMES=( " check missing                                       |" " check missing .                                     |" " check missing ..                                    |" " check missing ...                                   |" " check missing ....                                  |" " check missing .....                                 |")
   spinny::start
-  totalMissingFAA=$((${nb_total}-${cpt_rsync_failed}-$(ls -1 ${path_db}/*/*_protein.faa.gz 2>/dev/null | wc -l)))
+  totalMissingFAA=$((${nb_total}-${cpt_rsync_failed}-$(find ${path_db}/GC* -type f -name '*_protein.faa.gz' | wc -l)))
   spinny::stop
   cpt_done=0
   arrayPid=()
@@ -713,18 +737,18 @@ if [ ${division} == "BCT" ]; then
     rm -f "${dir_tmp}/*_prodigal.sh"
     echo -e '\e[1A\e[K'
   else
-    echo -ne " Any missing protein file" ; rjust 39 true
+    echo -ne " any missing protein file" ; rjust 39 true
   fi
 fi
 
 # ***** FAA ***** # (for missing phage FAA)
 if [[ ! -z "${elapse_stop_sec}" && $(($SECONDS-start_time)) -ge ${elapse_stop_sec} ]]; then summary true ; exit 0 ; fi
 if [ ${division} == "PHG" ]; then
-  echo -ne "| ${colortitle}FAA         :${NC}"
-  title "genomedl - faa"
+  echo -ne "| ${colortitle}FAA files   :${NC}"
+  title "genomedl | faa"
   SPINNY_FRAMES=( " check missing                                       |" " check missing .                                     |" " check missing ..                                    |" " check missing ...                                   |" " check missing ....                                  |" " check missing .....                                 |")
   spinny::start
-  totalMissingFAA=$((${nb_total}-${cpt_rsync_failed}-$(ls -1 ${path_db}/*/*_protein.faa.gz 2>/dev/null | wc -l)))
+  totalMissingFAA=$((${nb_total}-${cpt_rsync_failed}-$(find ${path_db}/GC* -type f -name '*_protein.faa.gz' | wc -l)))
   spinny::stop
   cpt_done=0
   arrayPid=()
@@ -735,20 +759,20 @@ if [ ${division} == "PHG" ]; then
       if [[ ! -z "${elapse_stop_sec}" && $(($SECONDS-start_time)) -ge ${elapse_stop_sec} ]]; then summary true ; exit 0 ; fi
       if ! ls ${ass_dir}/*_protein.faa.gz 1> /dev/null 2>&1; then
         # Paths
-        faa_path=$(echo ${gbk_path} | sed s/"_genomic.gbff.gz"/"_protein.faa.gz"/)
-        phanotateffn_path=$(echo "${gbk_path}" | sed s/"_genomic.gbff.gz"/"_phanotate.ffn"/)
-        phanotatefaa_path=$(echo "${gbk_path}" | sed s/"_genomic.gbff.gz"/"_phanotate.faa"/)
+        gbk_path=$(ls -1 ${ass_dir}/*.gbff.gz)
+        faa_path=$(echo ${gbk_path} | sed s/"_genomic.gbff.gz"/"_protein.faa"/)
+        ffn_path=$(echo "${gbk_path}" | sed s/"_genomic.gbff.gz"/"_gene.ffn.gz"/)
+        acc_name=$(get_base ${ffn_path} | sed s/"_gene.ffn.gz"/""/)          
         rm -f ${ass_dir}/*.dmnd
         bash_process="${dir_tmp}/${acc_name}_missingfaa.sh"
         # Construct process bash
-        echo -e "if [ ! -f \"${phanotatefaa_path}.gz\" ]; then" > ${bash_process}
-        echo -e "  gzip -f -d -c \"${phanotateffn_path}.gz\" 1>\"${dir_tmp}/${acc_name}_phanotate.ffn\"" >> ${bash_process}
-        echo -e "  ${transeq} -sequence \"${dir_tmp}/${acc_name}_phanotate.ffn\" -outseq \"${phanotatefaa_path}\" -frame 1 -table 11 -trim" >> ${bash_process}
-        echo -e "  sed -i s/\"_1 phanotate gene\"/\" phanotate protein\"/g \"${phanotatefaa_path}\"" >> ${bash_process}
-        echo -e "  gzip -f \"${phanotatefaa_path}\"" >> ${bash_process}
+        echo -e "if [ ! -s \"${ffn_path}\" ]; then" > ${bash_process} # Check if gene file is empty due to bad gene tag in gbff
+        echo -e "  touch ${faa_path}.gz" >> ${bash_process}
+        echo -e "else" >> ${bash_process}
+        echo -e "gzip -d -c \"${ffn_path}\" 1>\"${dir_tmp}/${acc_name}.ffn\"" > ${bash_process}
+        echo -e "  ${transeq} -sequence \"${dir_tmp}/${acc_name}.ffn\" -outseq \"${faa_path}\" -frame 1 -table 11 -trim" >> ${bash_process}
+        echo -e "  gzip -f \"${faa_path}\"" >> ${bash_process}
         echo -e "fi" >> ${bash_process}
-        echo -e "cp \"${phanotatefaa_path}.gz\" \"${faa_path}\"" >> ${bash_process}
-        echo -e "rm -f \"${dir_tmp}/${acc_name}_phanotate.ffn\"" >> ${bash_process}
         # Launch process
         bash ${bash_process} 2>>${log} &
         arrayPid+=($!)
@@ -760,21 +784,19 @@ if [ ${division} == "PHG" ]; then
     rm -f "${dir_tmp}/*_missingfaa.sh"
     echo -e '\e[1A\e[K'
   else
-    echo -ne " Any missing protein file" ; rjust 39 true
+    echo -ne " any missing protein file" ; rjust 39 true
   fi
 fi
 
-
-
 # ***** DIAMOND makedb ***** # (for phage two dmnd, original and phanotate)
 echo -ne "| ${colortitle}DiamondDB   :${NC}"
-title "genomedl - diamondb"
+title "genomedl | diamondb"
 SPINNY_FRAMES=( " check missing                                       |" " check missing .                                     |" " check missing ..                                    |" " check missing ...                                   |" " check missing ....                                  |" " check missing .....                                 |")
 spinny::start
 if [ ${division} == "PHG" ]; then
-  totalMissingDMND=$((${nb_total}*2-${cpt_rsync_failed}-$(ls -1 ${path_db}/*/*.dmnd 2>/dev/null | wc -l)))
+  totalMissingDMND=$((${nb_total}*2-${cpt_rsync_failed}-$(find ${path_db}/GC* -type f -name '*.dmnd' | wc -l)))
 else
-  totalMissingDMND=$((${nb_total}-${cpt_rsync_failed}-$(ls -1 ${path_db}/*/*.dmnd 2>/dev/null | wc -l)))
+  totalMissingDMND=$((${nb_total}-${cpt_rsync_failed}-$(find ${path_db}/GC* -type f -name '*.dmnd' | wc -l)))
 fi
 spinny::stop
 cpt_done=0
@@ -795,7 +817,7 @@ if [[ "${totalMissingDMND}" != "0" ]]; then
     if [ ${division} == "PHG" ]; then
       if ! ls ${ass_dir}/*_phanotate.dmnd 1> /dev/null 2>&1; then
         faa_path=$(ls -1 ${ass_dir}/*_phanotate.faa.gz)
-        dmnd_path=$(echo ${faa_path} | sed s/"_protein.faa.gz"/"_phanotate.dmnd"/)
+        dmnd_path=$(echo ${faa_path} | sed s/"_phanotate.faa.gz"/"_phanotate.dmnd"/)
         # Launch makedb
         ${diamond} makedb --in ${faa_path} --db ${dmnd_path} --quiet
         arrayPid+=($!)
@@ -807,7 +829,7 @@ if [[ "${totalMissingDMND}" != "0" ]]; then
   while [ $(jobs -p | wc -l) -gt 1 ]; do parallel_progress "diamond makedb" ${totalMissingDMND} ; sleep 1 ; done
   echo -e '\e[1A\e[K'
 else
-  echo -ne " Any missing diamond files" ; rjust 40 true
+  echo -ne " any missing diamond files" ; rjust 40 true
 fi
 echo -e "╰───────────────────────────────────────────────────────────────────╯"
 

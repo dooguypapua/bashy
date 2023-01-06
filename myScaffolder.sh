@@ -360,9 +360,6 @@ if [[ ! $? -eq 0 ]] ; then usage && display_error "Cannot create temp directory 
 mkdir -p ${dir_tmp}/ref
 # Input JSON file
 path_init_json="${dir_tmp}/input.json"
-# Log file
-path_log=${dir_tmp}/log.txt
-if [ ! -f "${path_log}" ]; then touch ${path_log} ; fi
 # Longest replicon name
 longest_replicon_name=12
 
@@ -428,12 +425,14 @@ done
 echo -ne "| ${color1}Scaffolding${NC}" ; rjust 12 true
 for strain in "${array_strain[@]}"
   do
+  # Retrieve path_out from JSON(for log_file location)
+  path_out=$(${JQ} -r ".\"${strain}\""."output" ${path_init_json})
+  mkdir -p ${path_out}
+  path_log=${path_out}/log.txt
   # Display
   echo -ne "|   ${color2}${strain}${NC}" ; rjust $((${#strain}+3)) true
   echo -e "\n\n${decoration}\nSample: ${strain}\n${decoration}" >> ${path_log}
-  # Retrieve from JSON
-  path_out=$(${JQ} -r ".\"${strain}\""."output" ${path_init_json})
-  mkdir -p ${path_out}
+  # Retrieve others from JSON
   path_tmp="${dir_tmp}/${strain}"
   mkdir -p ${path_tmp}
   path_ctg=$(${JQ} -r ".\"${strain}\""."contigs" ${path_init_json})
@@ -463,14 +462,12 @@ for strain in "${array_strain[@]}"
           echo -ne "|   ${color3}»»» update mode${NC}" ; rjust $((18)) true
           if [[ $bool_change_qcov == true ]]; then echo -ne "|${color3}   »»» new --qcov${NC}" ; rjust $((17)) true ; fi
           if [[ $bool_change_kmer == true ]]; then echo -ne "|${color3}   »»» new --kmer${NC}" ; rjust $((17)) true ; fi
-          if [[ $bool_change_contigs == true ]]; then echo -ne "|${color3}   »»» New input contigs${NC}" ; rjust $((24)) true ; fi
-          if [[ $bool_change_path_reads == true ]]; then echo -ne "|${color3}   »»» New input reads${NC}" ; rjust $((22)) true ; fi
-          if [[ $bool_change_array_strain_ref == true ]]; then echo -ne "|${color3}   »»» New reference${NC}" ; rjust $((20)) true ; fi
+          if [[ $bool_change_contigs == true ]]; then echo -ne "|${color3}   »»» new input contigs${NC}" ; rjust $((24)) true ; fi
+          if [[ $bool_change_path_reads == true ]]; then echo -ne "|${color3}   »»» new input reads${NC}" ; rjust $((22)) true ; fi
+          if [[ $bool_change_array_strain_ref == true ]]; then echo -ne "|${color3}   »»» new reference${NC}" ; rjust $((20)) true ; fi
         else
           echo -ne "|   ${color3}»»» resume mode${NC}" ; rjust $((18)) true
       fi
-  else
-      echo -ne "|   ${color3}»»» resume mode${NC}" ; rjust $((18)) true
   fi
   # Update strain parameters JSON
   echo -e "{\n  \"${strain}\":\n$(jq -r ."${strain}" ${path_init_json} | sed s/"^"/"  "/)\n}" > ${path_prev_json}
@@ -550,8 +547,8 @@ for strain in "${array_strain[@]}"
       then
       SPINNY_FRAMES=( "|     ⮡ spades                                                              |" "|     ⮡ spades .                                                            |" "|     ⮡ spades ..                                                           |" "|     ⮡ spades ...                                                          |" "|     ⮡ spades ....                                                         |" "|     ⮡ spades .....                                                        |")
       spinny::start
-      last_cmd=$(echo "${SPADES} --isolate -1 ${path_trim_r1} -2 ${path_trim_r2} -s ${path_untrim} --cov-cutoff off -k 21,33,55,77 -m ${memory} --threads ${threads} -o ${path_tmp}/spades --trusted-contigs ${path_abyss_contigs}" | tee -a ${path_log})
-      ${SPADES} --isolate -1 ${path_trim_r1} -2 ${path_trim_r2} -s ${path_untrim} --cov-cutoff off -k 21,33,55,77 -m ${memory} --threads ${threads} -o ${path_tmp}/spades --trusted-contigs ${path_abyss_contigs} >> ${path_log} 2>&1 || display_error "spades for '${strain}'" true "spades"
+      last_cmd=$(echo "${SPADES} --careful -1 ${path_trim_r1} -2 ${path_trim_r2} -s ${path_untrim} --cov-cutoff off -k 21,33,55,77 -m ${memory} --threads ${threads} -o ${path_tmp}/spades --trusted-contigs ${path_abyss_contigs}" | tee -a ${path_log})
+      ${SPADES} --careful -1 ${path_trim_r1} -2 ${path_trim_r2} -s ${path_untrim} --cov-cutoff off -k 21,33,55,77 -m ${memory} --threads ${threads} -o ${path_tmp}/spades --trusted-contigs ${path_abyss_contigs} >> ${path_log} 2>&1 || display_error "spades for '${strain}'" true "spades"
       awk -v n=1000 '/^>/{ if(l>n) print b; b=$0;l=0;next } {l+=length;b=b ORS $0}END{if(l>n) print b }' ${path_tmp}/spades/contigs.fasta | awk 'BEGIN {RS=">";FS="\n";OFS=""} NR>1 {print ">"$1; $1=""; print}' > ${path_final_contigs}
       spinny::stop
       echo -ne "|     ⮡ spades" ; rjust "13" true
@@ -734,6 +731,8 @@ for strain in "${array_strain[@]}"
       spinny::stop
       echo -ne "|       ⮡ merging" ; rjust "16" true
     fi
+    # Replace degenerated base
+    sed -i '/^[^>]/s/[^ATGCNatgcn]/N/g' ${path_final_out}
   else
     if [[ ! ${#array_strain_ref[@]} -eq 1 ]]; then echo -ne "|       ${color3}⮡ merging${NC}" ; rjust "16" true ; fi
   fi
@@ -828,8 +827,5 @@ printf "╯\n"
 
 
 # ***** POSTPROCESSING *****#
-# Keep log
-echo "SUCCESS" >> ${path_log}
-mv ${path_log} ${path_out}/log.out
 # Remove temp folder
 rm -rf ${dir_tmp}
