@@ -298,19 +298,6 @@ summary_sorted="${dir_tmp}/assembly_summary_sorted.txt"
 # ************************************************************************* #
 # *****                         PREPROCESSING                         ***** #
 # ************************************************************************* #
-# Data files
-cur_ass_summary="${path_db}/assembly_summary.txt"
-cur_taxdump="${path_db}/taxdump.tar.gz"
-if [ ! -f ${cur_ass_summary} ]; then
-  ass_summary_is_new=true
-else
-  ass_summary_is_new=false
-fi
-if [ ! -f ${cur_taxdump} ]; then
-  taxdump_is_new=true
-else
-  taxdump_is_new=false
-fi
 # Rsync exclude patterns
 echo -e "*_wgsmaster.gbff.gz\n*_assembly_structure\n*_assembly_stats.txt\nannotation_hashes.txt\n*_assembly_report.txt\n*_cds_from_genomic.fna.gz\n*_feature_table.txt.gz\n*_genomic.gff.gz\n*_genomic.gtf.gz\n*_genomic_gaps.txt.gz\n*_protein.gpff.gz\n*_rna_from_genomic.fna.gz\n*_translated_cds.faa.gz\nassembly_status.txt\nREADME.txt\n" > ${rsync_exclude}
 # Log file
@@ -363,38 +350,45 @@ SPINNY_FRAMES=( " synchronizing                                       |" " synch
 # Rsync assembly_summary
 echo -ne "| ${colortitle}Summary     :${NC}"
 spinny::start
+cur_ass_summary="${path_db}/assembly_summary.txt"
+tmp_ass_summary="${dir_tmp}/assembly_summary.txt"
 cpt_retry=0
 while [ $cpt_retry -le $rsync_max_retry ]
-    do rsync -u --copy-links --no-motd --contimeout=${contimeout} -q rsync://${summary_url} ${cur_ass_summary} 2>>${log} | tee ${rsync_out_ass_sum}
-    if [ -f ${cur_ass_summary} ]; then break ; fi
+    do rsync -u --copy-links --no-motd --contimeout=${contimeout} -q rsync://${summary_url} ${tmp_ass_summary} 2>>${log} | tee ${rsync_out_ass_sum}
+    if [ -f ${tmp_ass_summary} ]; then break ; fi
     sleep 5
     ((cpt_retry++))
 done
 spinny::stop
 if [ ! -f ${cur_ass_summary} ]; then display_error "Failed to download assembly_summary.txt" true ; fi
-if [[ ${ass_summary_is_new} == false && ! -s ${rsync_out_ass_sum} ]]; then
+# Check if assembly_summary is updated
+if cmp -s ${cur_ass_summary} ${tmp_ass_summary} ; then
   echo -ne " up-to-date" ; rjust "25" true
 else
   echo -ne "${colortitlel} updated${NC}" ; rjust "22" true
+  cp ${tmp_ass_summary} ${cur_ass_summary}
 fi
 # Rsync taxdump.tar.gz
 echo -ne "| ${colortitle}Taxdump     :${NC}"
 spinny::start
+cur_taxdump="${path_db}/taxdump.tar.gz"
+tmp_taxdump="${dir_tmp}/taxdump.tar.gz"
 cpt_retry=0
 while [ $cpt_retry -le $rsync_max_retry ]
-    do rsync -u --copy-links --no-motd --contimeout=${contimeout} -q rsync://${taxdump_url} ${cur_taxdump} 2>>${log} | tee ${rsync_out_tax_dump}
-    if [ -f ${cur_taxdump} ]; then break ; fi
+    do rsync -u --copy-links --no-motd --contimeout=${contimeout} -q rsync://${taxdump_url} ${tmp_taxdump} 2>>${log} | tee ${rsync_out_tax_dump}
+    if [ -f ${tmp_taxdump} ]; then break ; fi
     sleep 5
     ((cpt_retry++))
 done
 spinny::stop
 if [ ! -f ${cur_taxdump} ]; then display_error "Failed to download taxdump.tar.gz" true ; fi
-if [[ ${taxdump_is_new} == false && ! -s ${rsync_out_tax_dump} ]]; then
+# Check if taxdump is updated
+if cmp -s ${cur_taxdump} ${tmp_taxdump} ; then
   echo -ne " up-to-date" ; rjust "25" true
 else
   echo -ne "${colortitlel} updated${NC}" ; rjust "22" true
+  cp ${tmp_taxdump} ${cur_taxdump}
 fi
-
 # ***** FILTERING ***** # (disable if division=BCT and without taxonomy identifier)
 echo -ne "| ${colortitle}Filtering   :${NC}"
 # Sort assembly
