@@ -389,6 +389,7 @@ else
   echo -ne "${colortitlel} updated${NC}" ; rjust "22" true
   cp ${tmp_taxdump} ${cur_taxdump}
 fi
+
 # ***** FILTERING ***** # (disable if division=BCT and without taxonomy identifier)
 echo -ne "| ${colortitle}Filtering   :${NC}"
 # Sort assembly
@@ -630,7 +631,7 @@ if [[ ${totalMissingFFN} -gt 0 ]]; then
   rm -f "${dir_tmp}/*_extract.sh"
   echo -e '\e[1A\e[K'
 else
-  echo -ne " any missing gene file" ; rjust 36 true
+  echo -e " any missing gene file" ; rjust 36 true
 fi
 
 # ***** Phanotate ***** # (for phage)
@@ -763,7 +764,7 @@ if [ ${division} == "PHG" ]; then
         echo -e "if [ ! -s \"${ffn_path}\" ]; then" > ${bash_process} # Check if gene file is empty due to bad gene tag in gbff
         echo -e "  touch ${faa_path}.gz" >> ${bash_process}
         echo -e "else" >> ${bash_process}
-        echo -e "gzip -d -c \"${ffn_path}\" 1>\"${dir_tmp}/${acc_name}.ffn\"" > ${bash_process}
+        echo -e "  gzip -d -c \"${ffn_path}\" 1>\"${dir_tmp}/${acc_name}.ffn\"" >> ${bash_process}
         echo -e "  ${transeq} -sequence \"${dir_tmp}/${acc_name}.ffn\" -outseq \"${faa_path}\" -frame 1 -table 11 -trim" >> ${bash_process}
         echo -e "  gzip -f \"${faa_path}\"" >> ${bash_process}
         echo -e "fi" >> ${bash_process}
