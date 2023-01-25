@@ -36,7 +36,7 @@ function display_error {
 
 function usage {
     echo -e "╭───────────────────────────────────────────────────────────────────╮"
-    echo -e "|"${colortitlel}$' USAGE: genomedl.sh -o DIR -d DIV (-t INT -u -f DIR -w DIR -r INT)'${NC}" |"
+    echo -e "|"${colortitlel}$' USAGE: genomedl.sh -o DIR -d DIV (-t INT -f DIR -w DIR -r INT)'${NC}"    |"
     echo "|                                                                   |"
     echo -e "|"${colortitlel}$' Required options:'${NC}"                                                 |"
     echo "|"$'  -o Output database folder'"                                        |"
@@ -176,6 +176,8 @@ elapse_stop=0
 rsync_max_retry=5
 contimeout=5
 all_phage=false
+update_dmnd_prot=false
+update_dmnd_phanotate=false
 start_time=$SECONDS
 cpt_download=0
 cpt_done=0
@@ -311,6 +313,8 @@ echo -e "╭─INIT────────────────────�
 echo -ne "| ${colortitle}DB folder   : ${NC}${path_db}" ; rjust $((15+${#path_db})) true
 echo -ne "| ${colortitle}TMP folder  : ${NC}${dir_tmp}" ; rjust $((15+${#dir_tmp})) true
 echo -ne "| ${colortitle}Threads     : ${NC}${threads}" ; rjust $((15+${#threads})) true
+echo -ne "| ${colortitle}RsyncRetry  : ${NC}${rsync_max_retry}" ; rjust $((15+${#rsync_max_retry})) true
+echo -ne "| ${colortitle}RsyncTimeout: ${NC}${contimeout}" ; rjust $((15+${#contimeout})) true
 if [ ! -z ${elapse_stop_sec} ]; then
   echo -ne "| ${colortitle}Duration    : ${NC}${elapse_stop}" ; rjust $((15+${#elapse_stop})) true
 else
@@ -344,6 +348,7 @@ echo -e "╰──────────────────────�
 # ************************************************************************* #
 # *****                          PROCESSING                           ***** #
 # ************************************************************************* #
+# Don't forget that the port 873 must be open in the firewall
 # ***** RSYNC summary & taxdump ***** #
 echo -e "╭─PROCESSING────────────────────────────────────────────────────────╮"
 SPINNY_FRAMES=( " synchronizing                                       |" " synchronizing .                                     |" " synchronizing ..                                    |" " synchronizing ...                                   |" " synchronizing ....                                  |" " synchronizing .....                                 |")
@@ -360,7 +365,7 @@ while [ $cpt_retry -le $rsync_max_retry ]
     ((cpt_retry++))
 done
 spinny::stop
-if [ ! -f ${cur_ass_summary} ]; then display_error "Failed to download assembly_summary.txt" true ; fi
+if [ ! -f ${tmp_ass_summary} ]; then display_error "Failed to download assembly_summary.txt" true ; fi
 # Check if assembly_summary is updated
 if cmp -s ${cur_ass_summary} ${tmp_ass_summary} ; then
   echo -ne " up-to-date" ; rjust "25" true
@@ -381,7 +386,7 @@ while [ $cpt_retry -le $rsync_max_retry ]
     ((cpt_retry++))
 done
 spinny::stop
-if [ ! -f ${cur_taxdump} ]; then display_error "Failed to download taxdump.tar.gz" true ; fi
+if [ ! -f ${tmp_taxdump} ]; then display_error "Failed to download taxdump.tar.gz" true ; fi
 # Check if taxdump is updated
 if cmp -s ${cur_taxdump} ${tmp_taxdump} ; then
   echo -ne " up-to-date" ; rjust "25" true
@@ -631,7 +636,7 @@ if [[ ${totalMissingFFN} -gt 0 ]]; then
   rm -f "${dir_tmp}/*_extract.sh"
   echo -e '\e[1A\e[K'
 else
-  echo -e " any missing gene file" ; rjust 36 true
+  echo -e " any missing gene file" ; rjust 36 false
 fi
 
 # ***** Phanotate ***** # (for phage)
@@ -757,7 +762,7 @@ if [ ${division} == "PHG" ]; then
         gbk_path=$(ls -1 ${ass_dir}/*.gbff.gz)
         faa_path=$(echo ${gbk_path} | sed s/"_genomic.gbff.gz"/"_protein.faa"/)
         ffn_path=$(echo "${gbk_path}" | sed s/"_genomic.gbff.gz"/"_gene.ffn.gz"/)
-        acc_name=$(get_base ${ffn_path} | sed s/"_gene.ffn.gz"/""/)          
+        acc_name=$(get_base ${ffn_path} | sed s/"_gene.ffn.gz"/""/)
         rm -f ${ass_dir}/*.dmnd
         bash_process="${dir_tmp}/${acc_name}_missingfaa.sh"
         # Construct process bash
@@ -785,7 +790,7 @@ fi
 
 # ***** DIAMOND makedb ***** # (for phage two dmnd, original and phanotate)
 echo -ne "| ${colortitle}DiamondDB   :${NC}"
-title "genomedl | diamondb"
+title "genomedl | diamonddb"
 SPINNY_FRAMES=( " check missing                                       |" " check missing .                                     |" " check missing ..                                    |" " check missing ...                                   |" " check missing ....                                  |" " check missing .....                                 |")
 spinny::start
 if [ ${division} == "PHG" ]; then
@@ -802,6 +807,7 @@ if [[ "${totalMissingDMND}" != "0" ]]; then
     do
     if [[ ! -z "${elapse_stop_sec}" && $(($SECONDS-start_time)) -ge ${elapse_stop_sec} ]]; then summary true ; exit 0 ; fi
     if ! ls ${ass_dir}/*_protein.dmnd 1> /dev/null 2>&1; then
+      update_dmnd_prot=true
       faa_path=$(ls -1 ${ass_dir}/*_protein.faa.gz)
       dmnd_path=$(echo ${faa_path} | sed s/"_protein.faa.gz"/"_protein.dmnd"/)
       # Launch makedb
@@ -811,6 +817,7 @@ if [[ "${totalMissingDMND}" != "0" ]]; then
     fi
     if [ ${division} == "PHG" ]; then
       if ! ls ${ass_dir}/*_phanotate.dmnd 1> /dev/null 2>&1; then
+        update_dmnd_phanotate=true
         faa_path=$(ls -1 ${ass_dir}/*_phanotate.faa.gz)
         dmnd_path=$(echo ${faa_path} | sed s/"_phanotate.faa.gz"/"_phanotate.dmnd"/)
         # Launch makedb
@@ -826,6 +833,59 @@ if [[ "${totalMissingDMND}" != "0" ]]; then
 else
   echo -ne " any missing diamond files" ; rjust 40 true
 fi
+
+# ***** DIAMONDDB merge ***** # (for phage two dmnd, original and phanotate)
+# For *_protein.faa.gz
+if [[ ${update_dmnd_prot} = true || ! -s ${path_db}/all_protein.dmnd ]]; then
+  # Merging all protein.faa.gz
+  echo -ne "| ${colortitle}Merging     :${NC} ${nb_total} protein dmnd" ; rjust $((28+${#nb_total})) true
+  title "genomedl | merging prot."
+  cpt_done=0
+  for ass_dir in ${path_db}/GC*
+    do
+    acc_name=$(get_base ${ass_dir})
+    faa_path=$(ls -1 ${ass_dir}/*_protein.faa.gz 2>/dev/null || echo "None")
+    if [ "${faa_path}" != "None" ]; then cat ${faa_path} >> ${dir_tmp}/all_protein.faa.gz ; fi
+    ((cpt_done++))
+    percent_done=$(( ${cpt_done}*100/${nb_total} ))
+    progress ${percent_done} "${acc_name}" ${colorterm}
+  done
+  echo -e '\e[1A\e[K'
+  # Makedb for merge proteins
+  echo -ne "| ${colortitle}DiamondDB   :${NC}"
+  title "genomedl | diamonddb prot."
+  SPINNY_FRAMES=( " all protein                                         |" " all protein .                                       |" " all protein ..                                      |" " all protein ...                                     |" " all protein ....                                    |" " all protein .....                                   |")
+  spinny::start
+  ${diamond} makedb --in ${dir_tmp}/all_protein.faa.gz --db ${path_db}/all_protein.dmnd --quiet
+  spinny::stop
+  echo -ne " all protein" ; rjust 26 true
+fi
+# For *_phanotate.faa.gz
+if [[ ${update_dmnd_phanotate} = true || ! -s ${path_db}/all_phanotate.dmnd ]]; then
+  # Merging all phanotate.faa.gz
+  echo -ne "| ${colortitle}Merging     :${NC} ${nb_total} phanotate dmnd" ; rjust $((30+${#nb_total})) true
+  title "genomedl | merging phan."
+  cpt_done=0
+  for ass_dir in ${path_db}/GC*
+    do
+    acc_name=$(get_base ${ass_dir})
+    faa_path=$(ls -1 ${ass_dir}/*_phanotate.faa.gz 2>/dev/null || echo "None")
+    if [ "${faa_path}" != "None" ]; then cat ${faa_path} >> ${dir_tmp}/all_phanotate.faa.gz ; fi
+    ((cpt_done++))
+    percent_done=$(( ${cpt_done}*100/${nb_total} ))
+    progress ${percent_done} "${acc_name}" ${colorterm}
+  done
+  echo -e '\e[1A\e[K'
+  # Makedb for merge phanotate
+  echo -ne "| ${colortitle}DiamondDB   :${NC}"
+  title "genomedl | diamonddb phan."
+  SPINNY_FRAMES=( " all phanotate                                       |" " all phanotate .                                     |" " all phanotate ..                                    |" " all phanotate ...                                   |" " all phanotate ....                                  |" " all phanotate .....                                 |")
+  spinny::start
+  ${diamond} makedb --in ${dir_tmp}/all_phanotate.faa.gz --db ${path_db}/all_phanotate.dmnd --quiet
+  spinny::stop
+  echo -ne " all phanotate" ; rjust 28 true
+fi
+# End postprocessing
 echo -e "╰───────────────────────────────────────────────────────────────────╯"
 
 
