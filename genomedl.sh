@@ -171,6 +171,7 @@ path_db=""
 tax_ids=""
 tmp_folder="/tmp"
 threads=0
+update_summary=false
 update_rsync=false
 elapse_stop=0
 rsync_max_retry=5
@@ -372,6 +373,7 @@ if cmp -s ${cur_ass_summary} ${tmp_ass_summary} ; then
   echo -ne " up-to-date" ; rjust "25" true
 else
   echo -ne "${colortitlel} updated${NC}" ; rjust "22" true
+  update_summary=true
   cp ${tmp_ass_summary} ${cur_ass_summary}
 fi
 # Rsync taxdump.tar.gz
@@ -398,94 +400,96 @@ fi
 
 # ***** FILTERING ***** # (disable if division=BCT and without taxonomy identifier)
 echo -ne "| ${colortitle}Filtering   :${NC}"
-# Sort assembly
-SPINNY_FRAMES=( " summary reading                                     |" " summary reading .                                   |" " summary reading ..                                  |" " summary reading ...                                 |" " summary reading ....                                |" " summary reading .....                               |")
-spinny::start
-grep "^#" ${cur_ass_summary} > "${path_db}/assembly_summary_taxids.txt"
-grep -v "^#" ${cur_ass_summary} | sort -k 6,6 > "${summary_sorted}"
-spinny::stop
-# Any filtering
-if [[ -z "${tax_ids}" && "${division}" == "BCT" ]]; then
-  cp ${summary_sorted} "${path_db}/assembly_summary_taxids.txt"
-# All phages filtering (based on gencode 11)
-elif [[ -z "${tax_ids}" && "${division}" == "PHG" ]]; then
-  # Get nodes
-  SPINNY_FRAMES=( " nodes extraction                                    |" " nodes extraction .                                  |" " nodes extraction ..                                 |" " nodes extraction ...                                |" " nodes extraction ....                               |" " nodes extraction .....                              |")
+if [[ ${update_summary} = true || ! -f ${path_db}/assembly_summary_taxids.txt || ! -f ${download_urls_final} ]]; then 
+  # Sort assembly
+  SPINNY_FRAMES=( " summary reading                                     |" " summary reading .                                   |" " summary reading ..                                  |" " summary reading ...                                 |" " summary reading ....                                |" " summary reading .....                               |")
   spinny::start
-  tar xf ${cur_taxdump} -C ${dir_tmp} $(get_base ${nodes_dmp}) 2>>${log}
+  grep "^#" ${cur_ass_summary} > "${path_db}/assembly_summary_taxids.txt"
+  grep -v "^#" ${cur_ass_summary} | sort -k 6,6 > "${summary_sorted}"
   spinny::stop
-  # Lineage filtering
-  SPINNY_FRAMES=( " gencode filtering                                   |" " gencode filtering .                                 |" " gencode filtering ..                                |" " gencode filtering ...                               |" " gencode filtering ....                              |" " gencode filtering .....                             |")
+  # Any filtering
+  if [[ -z "${tax_ids}" && "${division}" == "BCT" ]]; then
+    cp ${summary_sorted} "${path_db}/assembly_summary_taxids.txt"
+  # All phages filtering (based on gencode 11)
+  elif [[ -z "${tax_ids}" && "${division}" == "PHG" ]]; then
+    # Get nodes
+    SPINNY_FRAMES=( " nodes extraction                                    |" " nodes extraction .                                  |" " nodes extraction ..                                 |" " nodes extraction ...                                |" " nodes extraction ....                               |" " nodes extraction .....                              |")
+    spinny::start
+    tar xf ${cur_taxdump} -C ${dir_tmp} $(get_base ${nodes_dmp}) 2>>${log}
+    spinny::stop
+    # Lineage filtering
+    SPINNY_FRAMES=( " gencode filtering                                   |" " gencode filtering .                                 |" " gencode filtering ..                                |" " gencode filtering ...                               |" " gencode filtering ....                              |" " gencode filtering .....                             |")
+    spinny::start
+    # Get lineage with gencode 11
+    cut -f 1,13 ${nodes_dmp} | grep -P "\t11" > ${lineage_taxids}
+    spinny::stop
+    SPINNY_FRAMES=( " lineage filtering                                   |" " lineage filtering .                                 |" " lineage filtering ..                                |" " lineage filtering ...                               |" " lineage filtering ....                              |" " lineage filtering .....                             |")
+    spinny::start
+    # Sort, remove duplicate & filter assembly_summary
+    awk '$1' ${lineage_taxids} | sort -u -o ${lineage_taxids}
+    join_as_fields1="1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9,1.10,1.11,1.12,1.13,1.14,1.15,1.16,1.17,1.18,1.19,1.20,1.21,1.22,1.23"
+    join -1 6 -2 1 "${summary_sorted}" ${lineage_taxids} -o ${join_as_fields1} -t$'\t' | sort | uniq >> "${path_db}/assembly_summary_taxids.txt"
+    spinny::stop  
+  else
+    # Get taxidlineage
+    SPINNY_FRAMES=( " taxidlineage extraction                             |" " taxidlineage extraction .                           |" " taxidlineage extraction ..                          |" " taxidlineage extraction ...                         |" " taxidlineage extraction ....                        |" " taxidlineage extraction .....                       |")
+    spinny::start
+    tar xf ${cur_taxdump} -C ${dir_tmp} $(get_base ${taxidlineage_dmp}) 2>>${log}
+    spinny::stop
+    # Get only taxids in the lineage section
+    SPINNY_FRAMES=( " taxids to lineage                                   |" " taxids to lineage .                                 |" " taxids to lineage ..                                |" " taxids to lineage ...                               |" " taxids to lineage ....                              |" " taxids to lineage .....                             |")
+    spinny::start
+    echo $tax_ids > ${lineage_taxids}
+    for tx in ${tax_ids//,/ }; do
+        txids_lin=$(grep "[^0-9]${tx}[^0-9]" ${taxidlineage_dmp} | cut -f 1)
+        echo "${txids_lin}" >> ${lineage_taxids}
+    done
+    spinny::stop
+    # Lineage filtering
+    SPINNY_FRAMES=( " lineage filtering                                   |" " lineage filtering .                                 |" " lineage filtering ..                                |" " lineage filtering ...                               |" " lineage filtering ....                              |" " lineage filtering .....                             |")
+    spinny::start
+    # Sort, remove duplicate & filter assembly_summary
+    awk '$1' ${lineage_taxids} | sort -u -o ${lineage_taxids}
+    join_as_fields1="1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9,1.10,1.11,1.12,1.13,1.14,1.15,1.16,1.17,1.18,1.19,1.20,1.21,1.22,1.23"
+    join -1 6 -2 1 "${summary_sorted}" ${lineage_taxids} -o ${join_as_fields1} -t$'\t' | sort | uniq >> "${path_db}/assembly_summary_taxids.txt"
+    spinny::stop
+  fi
+  # Making url files 
+  SPINNY_FRAMES=( " create url files                                    |" " create url files .                                  |" " create url files ..                                 |" " create url files ...                                |" " create url files ....                               |" " create url files .....                              |")
   spinny::start
-  # Get lineage with gencode 11
-  cut -f 1,13 ${nodes_dmp} | grep -P "\t11" > ${lineage_taxids}
-  spinny::stop
-  SPINNY_FRAMES=( " lineage filtering                                   |" " lineage filtering .                                 |" " lineage filtering ..                                |" " lineage filtering ...                               |" " lineage filtering ....                              |" " lineage filtering .....                             |")
-  spinny::start
-  # Sort, remove duplicate & filter assembly_summary
-  awk '$1' ${lineage_taxids} | sort -u -o ${lineage_taxids}
-  join_as_fields1="1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9,1.10,1.11,1.12,1.13,1.14,1.15,1.16,1.17,1.18,1.19,1.20,1.21,1.22,1.23"
-  join -1 6 -2 1 "${summary_sorted}" ${lineage_taxids} -o ${join_as_fields1} -t$'\t' | sort | uniq >> "${path_db}/assembly_summary_taxids.txt"
-  spinny::stop  
-else
-  # Get taxidlineage
-  SPINNY_FRAMES=( " taxidlineage extraction                             |" " taxidlineage extraction .                           |" " taxidlineage extraction ..                          |" " taxidlineage extraction ...                         |" " taxidlineage extraction ....                        |" " taxidlineage extraction .....                       |")
-  spinny::start
-  tar xf ${cur_taxdump} -C ${dir_tmp} $(get_base ${taxidlineage_dmp}) 2>>${log}
-  spinny::stop
-  # Get only taxids in the lineage section
-  SPINNY_FRAMES=( " taxids to lineage                                   |" " taxids to lineage .                                 |" " taxids to lineage ..                                |" " taxids to lineage ...                               |" " taxids to lineage ....                              |" " taxids to lineage .....                             |")
-  spinny::start
-  echo $tax_ids > ${lineage_taxids}
-  for tx in ${tax_ids//,/ }; do
-      txids_lin=$(grep "[^0-9]${tx}[^0-9]" ${taxidlineage_dmp} | cut -f 1)
-      echo "${txids_lin}" >> ${lineage_taxids}
-  done
-  spinny::stop
-  # Lineage filtering
-  SPINNY_FRAMES=( " lineage filtering                                   |" " lineage filtering .                                 |" " lineage filtering ..                                |" " lineage filtering ...                               |" " lineage filtering ....                              |" " lineage filtering .....                             |")
-  spinny::start
-  # Sort, remove duplicate & filter assembly_summary
-  awk '$1' ${lineage_taxids} | sort -u -o ${lineage_taxids}
-  join_as_fields1="1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9,1.10,1.11,1.12,1.13,1.14,1.15,1.16,1.17,1.18,1.19,1.20,1.21,1.22,1.23"
-  join -1 6 -2 1 "${summary_sorted}" ${lineage_taxids} -o ${join_as_fields1} -t$'\t' | sort | uniq >> "${path_db}/assembly_summary_taxids.txt"
+  input_data=$(tail -n+3 "${path_db}/assembly_summary_taxids.txt" | cut -f 1,18,20 | tr "\t" "#") # replace tabs with alarm bell
+  declare -A assArrayRefseqSrcFTPpath
+  while IFS="#" read assembly_accession gbrs_paired_asm ftp_path
+    do
+    if [ "$ftp_path" != "na" ]; then
+      if [ "$gbrs_paired_asm" == "na" ]; then
+        echo ${ftp_path} >> ${download_urls_genbank}
+      else
+        echo "${gbrs_paired_asm}#${ftp_path}" >> ${download_urls_refseq}
+        assArrayRefseqSrcFTPpath["$gbrs_paired_asm"]=${ftp_path}
+      fi
+    fi
+  done <<< "$input_data"
+  if [ -f ${download_urls_genbank} ]; then
+    sed -i s/"https"/"rsync"/g ${download_urls_genbank}
+  else
+    touch ${download_urls_genbank}
+  fi
+  if [ -f ${download_urls_refseq} ]; then
+    sed -i s~"/"~"#"~g ${download_urls_refseq}
+    sed -i s/"_"/"#"/g ${download_urls_refseq}
+    awk 'BEGIN {FS="#";OFS="_"} {print "rsync://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/"$9"/"$10"/"$11"/"$1,$2,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30}' ${download_urls_refseq} > "${download_urls_refseq}_2"
+    mv "${download_urls_refseq}_2" ${download_urls_refseq}
+    sed -i -e s/"__.*"/""/g ${download_urls_refseq}
+    sed -i -e s/"__.*"/""/g ${download_urls_refseq}
+  else
+    touch ${download_urls_refseq}
+  fi  
+  cat ${download_urls_genbank} ${download_urls_refseq} > ${download_urls}
   spinny::stop
 fi
 # Count genomes
 nb_total=$(grep -cPv "^#" ${path_db}/assembly_summary_taxids.txt)
-# Making url files 
-SPINNY_FRAMES=( " create url files                                    |" " create url files .                                  |" " create url files ..                                 |" " create url files ...                                |" " create url files ....                               |" " create url files .....                              |")
-spinny::start
-input_data=$(tail -n+3 "${path_db}/assembly_summary_taxids.txt" | cut -f 1,18,20 | tr "\t" "#") # replace tabs with alarm bell
-declare -A assArrayRefseqSrcFTPpath
-while IFS="#" read assembly_accession gbrs_paired_asm ftp_path
-  do
-  if [ "$ftp_path" != "na" ]; then
-    if [ "$gbrs_paired_asm" == "na" ]; then
-      echo ${ftp_path} >> ${download_urls_genbank}
-    else
-      echo "${gbrs_paired_asm}#${ftp_path}" >> ${download_urls_refseq}
-      assArrayRefseqSrcFTPpath["$gbrs_paired_asm"]=${ftp_path}
-    fi
-  fi
-done <<< "$input_data"
-if [ -f ${download_urls_genbank} ]; then
-  sed -i s/"https"/"rsync"/g ${download_urls_genbank}
-else
-  touch ${download_urls_genbank}
-fi
-if [ -f ${download_urls_refseq} ]; then
-  sed -i s~"/"~"#"~g ${download_urls_refseq}
-  sed -i s/"_"/"#"/g ${download_urls_refseq}
-  awk 'BEGIN {FS="#";OFS="_"} {print "rsync://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/"$9"/"$10"/"$11"/"$1,$2,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30}' ${download_urls_refseq} > "${download_urls_refseq}_2"
-  mv "${download_urls_refseq}_2" ${download_urls_refseq}
-  sed -i -e s/"__.*"/""/g ${download_urls_refseq}
-  sed -i -e s/"__.*"/""/g ${download_urls_refseq}
-else
-  touch ${download_urls_refseq}
-fi  
-cat ${download_urls_genbank} ${download_urls_refseq} > ${download_urls}
-spinny::stop
 # Create associative array for fast basename from URL
 spinny::start
 SPINNY_FRAMES=( " create basename hashmap                             |" " create basename hashmap .                           |" " create basename hashmap ..                          |" " create basename hashmap ...                         |" " create basename hashmap ....                        |" " create basename hashmap .....                       |")
@@ -528,6 +532,43 @@ diff ${dir_tmp}/list_yet.txt ${dir_tmp}/list_all.txt | grep "<" | cut -d " " -f 
     ((nb_removed++))
   done < ${dir_tmp}/removed.txt
 spinny::stop
+
+# Create assembly_summary JSON
+if [[ ${update_summary} = true && ! -f ${path_db}/assembly_summary.json ]]; then
+  SPINNY_FRAMES=( " create assembly_summary JSON                        |" " create assembly_summary JSON .                      |" " create assembly_summary JSON ..                     |" " create assembly_summary JSON ...                    |" " create assembly_summary JSON ....                   |" " create assembly_summary JSON .....                  |")
+  spinny::start
+  IFS='|'
+  echo -ne "{" > ${path_db}/assembly_summary.json
+  while read -a arrLine; do
+    if [[ ${arrLine[0]:0:1} != "#" ]]; then
+      acc_name=${arrLine[0]}
+      taxid=${arrLine[5]}
+      sp_taxid=${arrLine[6]}
+      org_name=${arrLine[7]}
+      infra_name=$(echo ${arrLine[8]} | sed s/"strain="/""/)
+      isolate_name=${arrLine[9]}
+      asm_name=${arrLine[15]}
+      format_name=${org_name}
+      if [[ infra_name != "" && "$format_name" != *"$infra_name"* ]]
+        then format_name="${format_name}_$infra_name"
+      fi
+      if [[ isolate_name != "" && "$format_name" != *"$isolate_name"* ]]
+        then format_name="${format_name}_$isolate_name"
+      fi    
+      JSON="\n\"${acc_name}\":"
+      JSON="${JSON}\t{\n"
+      JSON="${JSON}\t\"taxid\":\"${taxid}\",\n"
+      JSON="${JSON}\t\"sp_taxid\":\"${sp_taxid}\",\n"
+      JSON="${JSON}\t\"org_name\":\"${format_name}\",\n"
+      JSON="${JSON}\t\"asm_name\":\"${asm_name}\"\n"
+      JSON="${JSON}\t},"
+      echo -ne ${JSON} >> ${path_db}/assembly_summary.json
+    fi
+  done < <(cat /mnt/g/db/vibrioDB/assembly_summary_taxids.txt | tr '\t' '|')
+  truncate -s-1 ${path_db}/assembly_summary.json
+  echo -ne "\n}\n" >> ${path_db}/assembly_summary.json
+  spinny::stop
+fi
 echo -ne " done" ; rjust 19 true
 
 # ***** DELETE replaced/removed genomes ***** #
@@ -646,7 +687,6 @@ fi
 if [[ ! -z "${elapse_stop_sec}" && $(($SECONDS-start_time)) -ge ${elapse_stop_sec} ]]; then summary true ; exit 0 ; fi
 if [ ${division} == "PHG" ]; then
   echo -ne "| ${colortitle}Phanotate   :${NC}"
-  exit
   title "genomedl | phanotate"
   SPINNY_FRAMES=( " check missing                                       |" " check missing .                                     |" " check missing ..                                    |" " check missing ...                                   |" " check missing ....                                  |" " check missing .....                                 |")
   spinny::start
