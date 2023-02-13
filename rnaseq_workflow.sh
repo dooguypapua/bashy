@@ -40,8 +40,8 @@ function usage {
     echo "|                                                                   |"
     echo -e "|"${colortitlel}$' Required options:'${NC}"                                                 |"
     echo "|"$'  -i Input FASTQ folder'"                                            |"
-    echo "|"$'  -r Reference(s) FASTA (comma-separated)'"                          |"
-    echo "|"$'  -g Reference(s) GFF (comma-separated and same filename as FASTA)'" |"
+    echo "|"$'  -r Reference FASTA,GFF (could be multiple times)'"                 |"
+    echo "|"$'     (FASTA=.fasta,.fna,.fa) (GFF=.gff,.gff3,.gtf)'"                 |"
     echo "|"$'  -o Output results folder'"                                         |"
     echo "|                                                                   |"
     echo -e "|"${colortitlel}$' Optional options:'${NC}"                                                 |"
@@ -99,12 +99,11 @@ function pwait() {
   done
 }
 
-
 function summary {
   title "rnaseq | summary"
   echo -e "╭─INFO──────────────────────────────────────────────────────────────╮"
   # ***** DISK USAGE ***** #
-  echo -ne "| ${colortitle}Folder size :${NC}"
+  echo -ne "| ${colortitle}Output size :${NC}"
   SPINNY_FRAMES=( " calculating                                         |" " calculating .                                       |" " calculating ..                                      |" " calculating ...                                     |" " calculating ....                                    |" " calculating .....                                   |")
   spinny::start
   folder_size=$(du -hs ${path_dir_out} | cut -f 1)
@@ -134,7 +133,7 @@ function summary {
 # ************************************************************************* #
 # *****                        INITIALIZATION                         ***** #
 # ************************************************************************* #
-# Slurm path (sbatch --export all --mem 64GB -o rnaseq.%N.%j.out -e rnaseq.%N.%j.err --cpus-per-task=12 -p fast rnaseq_workflow.sh -i reads -r P115.fna,V115.fna -g P115.gff,V115.gff -o PICMI_RNASEQ_OUT)
+# Slurm path (sbatch --export all --mem 64GB --cpus-per-task=12 -o rnaseq.%N.%j.out -e rnaseq.%N.%j.err -p fast rnaseq_workflow.sh -i reads -r P115.fna,V115.fna -g P115.gff,V115.gff -o PICMI_RNASEQ_OUT)
 if [ -n $SLURM_JOB_ID ] && [ "$SLURM_JOB_ID" != "" ]
   then
   slurm_bool=true
@@ -156,6 +155,7 @@ title "rnaseq workflow"
 declare -A fastq_map
 declare -A ref_fasta_map
 declare -A ref_gff_map
+declare -A ref_title_map
 tmp_folder="/tmp"
 htseqcount_args="--mode=union --stranded=yes --order=name --type=gene --minaqual=10 --idattr=locus_tag"
 start_time=$SECONDS
@@ -187,13 +187,14 @@ for arg in "$@"; do
   esac
 done
 # list of arguments expected in the input
+ref_fasta_list=""
 optstring=":i:r:g:o:f:b:c:t:w:h"
+cpt_ref=1
 while getopts ${optstring} arg; do
   case ${arg} in
     h) usage ; exit 0 ;;
     i) path_dir_in="${OPTARG}" ;;
-    r) ref_fasta_list="${OPTARG}" ;;
-    g) ref_gff_list="${OPTARG}" ;;
+    r) ref_fasta_list="${ref_fasta_list}${OPTARG}#" ;;
     o) path_dir_out="${OPTARG}" ;;
     w) tmp_folder="${OPTARG}" ;;
     t) threads="${OPTARG}" ;;
@@ -204,10 +205,11 @@ while getopts ${optstring} arg; do
     ?) usage ; display_error "Invalid option: -${OPTARG}." false ; exit 2 ;;
   esac
 done
+
+
 # Check missing required arguments
 if [[ -z "${path_dir_in}" ]]; then usage ; display_error "Input FASTQ folder (-i)" false ; fi
-if [[ -z "${ref_fasta_list}" ]]; then usage ; display_error "Reference(s) FASTA is required (-r)" false ; fi
-if [[ -z "${ref_gff_list}" ]]; then usage ; display_error "Reference(s) GFF is required (-g)" false ; fi
+if [[ -z "${ref_fasta_list}" ]]; then usage ; display_error "Reference FASTA/GFF is required (-r)" false ; fi
 if [[ -z "${path_dir_out}" ]]; then usage ; display_error "Output results folder is required (-o)" false ; fi
 # Check input fastq
 for file in "$path_dir_in"/*.fastq "$path_dir_in"/*.fq "$path_dir_in"/*.fastq.gz "$path_dir_in"/*.fq.gz; do
@@ -218,19 +220,25 @@ for file in "$path_dir_in"/*.fastq "$path_dir_in"/*.fq "$path_dir_in"/*.fastq.gz
 done
 if (( ${#fastq_map[@]} == 0 )); then usage ; display_error "Any input FASTQ found (-i)" false ; fi
 # Check reference FASTA
-IFS=',' read -ra fasta_array <<< "$ref_fasta_list"
-for fasta_path in "${fasta_array[@]}"; do
-  if [[ ! -f ${fasta_path} ]]; then usage ; display_error "Reference FASTA not found '$(basename ${fasta_path})'" false ; fi
-done
-IFS=',' read -ra gff_array <<< "$ref_gff_list"
-for gff_path in "${gff_array[@]}"; do
-  if [[ ! -f ${gff_path} ]]; then usage ; display_error "Reference GFF not found '$(basename ${gff_path})'" false ; fi
-done
-# Create reference associative arrays
-for i in "${!fasta_array[@]}"; do
-  ref_name=$(basename ${fasta_array[$i]} | sed s/".fasta"/""/ | sed s/".fna"/""/)
-  ref_fasta_map["$ref_name"]=${fasta_array[$i]}
-  ref_gff_map["$ref_name"]=${gff_array[$i]}
+cpt_ref=1
+IFS='#' read -ra ref_array <<< "$ref_fasta_list"
+for ref_couple in "${ref_array[@]}"; do
+  pair1=$(echo ${ref_couple} | cut -d "," -f 1)
+  pair2=$(echo ${ref_couple} | cut -d "," -f 2)
+  ref_fasta=""
+  ref_gff=""
+  if [[ "$pair1" == *".fasta" ||  "$pair1" == *".fna" ||  "$pair1" == *".fa" ]]; then ref_fasta=${pair1} ; fi
+  if [[ "$pair1" == *".gff" ||  "$pair1" == *".gtf" ||  "$pair1" == *".gff3" ]]; then ref_gff=${pair1} ; fi
+  if [[ "$pair2" == *".fasta" ||  "$pair2" == *".fna" ||  "$pair2" == *".fa" ]]; then ref_fasta=${pair2} ; fi
+  if [[ "$pair2" == *".gff" ||  "$pair2" == *".gtf" ||  "$pair2" == *".gff3" ]]; then ref_gff=${pair2} ; fi
+  if [[ "$ref_fasta" == "" ]]; then usage ; display_error "Missing FASTA for reference '${ref_couple}'" false ; fi
+  if [[ "$ref_gff" == "" ]]; then usage ; display_error "Missing GFF for reference '${ref_couple}'" false ; fi
+  if [[ ! -f $ref_fasta ]]; then usage ; display_error "Reference FASTA not found '${ref_fasta}'" false ; fi
+  if [[ ! -f $ref_gff ]]; then usage ; display_error "Reference GFF not found '${ref_gff}'" false ; fi
+  ref_fasta_map["${cpt_ref}"]=$ref_fasta
+  ref_gff_map["${cpt_ref}"]=$ref_gff
+  ref_title_map["${cpt_ref}"]=$(basename $ref_fasta | sed s/".fasta"/""/ | sed s/".fna"/""/ | sed s/".fa"/""/)
+  ((cpt_ref++))
 done
 # Check arguments format
 if [[ ! -z "${threads}" && ! "${threads}" =~ ^[0-9,]+$ ]]; then usage ; display_error "Number of threads is invalid (must be integer)" false ; fi
@@ -265,8 +273,13 @@ nb_fastq_ref=$((${#fastq_map[@]}*${#ref_fasta_map[@]}))
 echo -e "╭─INIT──────────────────────────────────────────────────────────────╮"
 echo -ne "| ${colortitle}FASTQ folder: ${NC}${in}" ; rjust $((15+${#in})) true
 echo -ne "| ${colortitle}FASTQ found : ${NC}${nb_fastq}" ; rjust $((15+${#nb_fastq})) true
-for ref_name in "${!ref_fasta_map[@]}"; do
-  echo -ne "| ${colortitle}Reference   : ${NC}${ref_name}" ; rjust $((15+${#ref_name})) true
+for (( ref_num=1; ref_num<=${#ref_title_map[@]}; ref_num++ )); do
+    if [[ $ref_num -lt 10 ]]; then
+      echo -ne "| ${colortitle}Reference ${ref_num} : ${NC}${ref_title_map[$ref_num]}"
+    else
+      echo -ne "| ${colortitle}Reference ${ref_num}: ${NC}${ref_title_map[$ref_num]}"
+    fi 
+    rjust $((15+${#ref_title_map[$ref_num]})) true
 done
 echo -ne "| ${colortitle}Output dir  : ${NC}${path_dir_out}" ; rjust $((15+${#path_dir_out})) true
 echo -ne "| ${colortitle}TMP folder  : ${NC}${dir_tmp}" ; rjust $((15+${#dir_tmp})) true
@@ -283,14 +296,18 @@ echo -e "╰──────────────────────�
 echo -e "╭─PROCESSING────────────────────────────────────────────────────────╮"
 
 # ***** CREATE BOWTIE INDEX ***** #
-for ref_name in "${!ref_fasta_map[@]}"; do
-    echo -ne "| ${colortitle}Indexing    :${NC}"
-    ref_idx_path="${dir_tmp}/${ref_name}"
+for (( ref_num=1; ref_num<=${#ref_title_map[@]}; ref_num++ )); do
+    if [[ $ref_num -lt 10 ]]; then
+      echo -ne "| ${colortitle}Indexing ${ref_num}  :${NC}"
+    else
+      echo -ne "| ${colortitle}Indexing ${ref_num} :${NC}"
+    fi 
+    ref_name=${ref_title_map[$ref_num]}
+    ref_idx_path="${dir_tmp}/${ref_title_map[$ref_num]}"
     if [[ ! -f  "${ref_idx_path}.1.ebwt" ]]; then
         SPINNY_FRAMES=( " reference indexing                                  |" " reference indexing .                                |" " reference indexing ..                               |" " reference indexing ...                              |" " reference indexing ....                             |" " reference indexing .....                            |")
         spinny::start
-        sleep 0.1
-        # bowtie-build --threads ${threads} -f ${ref_fasta_map[$ref_name]} ${ref_idx_path} >> ${log} 2>&1
+        bowtie-build --threads ${threads} -f ${ref_fasta_map[$ref_num]} ${ref_idx_path} >> ${log} 2>&1
         spinny::stop
     fi
     echo -ne " ${ref_name}" ; rjust $((15+${#ref_name})) true
@@ -304,8 +321,7 @@ for fastq_name in "${!fastq_map[@]}"; do
   path_trim=${path_dir_out}/${fastq_name}_trim.fq.gz
   # Trimming
   if [[ ! -f  ${path_trim} ]]; then
-      sleep 0.1
-      # fastp -i ${path_fastq} -o ${path_trim} --length_required 36 --cut_right_window_size 4 --cut_right_mean_quality 20 --thread ${threads} >> ${log} 2>&1
+      fastp -i ${path_fastq} -o ${path_trim} --length_required 36 --cut_right_window_size 4 --cut_right_mean_quality 20 --thread ${threads} >> ${log} 2>&1
   fi
   ((cpt_done++))
   percent_done=$(( ${cpt_done}*100/${#fastq_map[@]} ))
@@ -318,14 +334,14 @@ echo -ne "| ${colortitle}Trimming    :${NC} done" ; rjust 19 true
 echo -ne "| ${colortitle}Mapping     :${NC}${colortitlel} in progress${NC}" ; rjust 26 true
 cpt_done=0
 for fastq_name in "${!fastq_map[@]}"; do
-    for ref_name in "${!ref_fasta_map[@]}"; do
+    for (( ref_num=1; ref_num<=${#ref_title_map[@]}; ref_num++ )); do
+        ref_name=${ref_title_map[$ref_num]}
         ref_idx_path="${dir_tmp}/${ref_name}"
         path_trim=${path_dir_out}/${fastq_name}_trim.fq.gz
         path_sam=${path_dir_out}/${fastq_name}_${ref_name}.sam
         # Mapping
         if [[ ! -f  ${path_sam} ]]; then
-            sleep 0.1
-            # bowtie -S --threads ${threads} ${ref_idx_path} ${path_trim} > ${path_sam} 2>>${log}
+            bowtie -S --threads ${threads} ${ref_idx_path} ${path_trim} > ${path_sam} 2>>${log}
         fi
         ((cpt_done++))
         percent_done=$(( ${cpt_done}*100/${nb_fastq_ref}))
@@ -340,14 +356,14 @@ echo -ne "| ${colortitle}Mapping     :${NC} done" ; rjust 19 true
 echo -ne "| ${colortitle}Count       :${NC}${colortitlel} in progress${NC}" ; rjust 26 true
 cpt_done=0
 for fastq_name in "${!fastq_map[@]}"; do
-    for ref_name in "${!ref_fasta_map[@]}"; do
+    for (( ref_num=1; ref_num<=${#ref_title_map[@]}; ref_num++ )); do
+        ref_name=${ref_title_map[$ref_num]}
+        path_ref_gff=${ref_gff_map[$ref_num]}
         path_sam=${path_dir_out}/${fastq_name}_${ref_name}.sam
-        path_ref_gff=${ref_gff_map[$ref_name]}
         path_count=${path_dir_out}/${fastq_name}_${ref_name}_count.sam
         # htseq-count
         if [[ ! -f  ${path_sam} ]]; then
-            sleep 0.1
-            # htseq-count ${htseqcount_args} ${path_sam} ${path_ref_gff} > ${path_count} 2>>${log} &
+            htseq-count ${htseqcount_args} ${path_sam} ${path_ref_gff} > ${path_count} 2>>${log} &
             arrayPid+=($!)
             pwait ${threads} ; parallel_progress "htseq-count" "${nb_fastq_ref}"
         fi
