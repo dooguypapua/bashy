@@ -142,7 +142,7 @@ if [ -n $SLURM_JOB_ID ] && [ "$SLURM_JOB_ID" != "" ]
   source "`dirname \"$src_path\"`"/functions.sh
   source "`dirname \"$src_path\"`"/spinny.sh
   source "`dirname \"$src_path\"`"/slurm_env.sh
-# bash rnaseq_workflow.sh -i reads -r P115.fna,V115.fna -g P115.gff,V115.gff -o PICMI_RNASEQ_OUT
+# bash rnaseq_workflow.sh -i reads -r P115.fna,P115.gff -r V115.fna,V115.gff -o PICMI_RNASEQ_OUT
 else
   path_tmp="/tmp"
   threads=0
@@ -157,11 +157,12 @@ declare -A ref_fasta_map
 declare -A ref_gff_map
 declare -A ref_title_map
 tmp_folder="/tmp"
-htseqcount_args="--mode=union --stranded=yes --order=name --type=gene --minaqual=10 --idattr=locus_tag"
+htseqcount_args="--mode=union --stranded=reverse --order=name --type=gene --minaqual=10 --idattr=locus_tag"
 start_time=$SECONDS
 # Tools paths
+bowtie="bowtie2"
+bowtiebuild="bowtie2-build"
 fastp="fastp"
-bowtie="bowtie"
 htseqcount="htseq-count"
 # Colors
 colortitle='\x1b[38;2;255;60;60m'
@@ -179,16 +180,18 @@ for arg in "$@"; do
   case "$arg" in
     "--fastp") set -- "$@" "-f" ;;
     "--bowtie") set -- "$@" "-b" ;;
+    "--bowtie-build") set -- "$@" "-k" ;;
     "--htseq-count") set -- "$@" "-c" ;;
     "-fastp") usage ; display_error "Invalid option: -fastp." false ;;
     "-bowtie") usage ; display_error "Invalid option: -bowtie." false ;;
+    "-bowtie-build") usage ; display_error "Invalid option: -bowtie-build." false ;;
     "-htseq-count") usage ; display_error "Invalid option: -htseq-count." false ;;
     *) set -- "$@" "$arg"
   esac
 done
 # list of arguments expected in the input
 ref_fasta_list=""
-optstring=":i:r:g:o:f:b:c:t:w:h"
+optstring=":i:r:g:o:f:b:k:c:t:w:h"
 cpt_ref=1
 while getopts ${optstring} arg; do
   case ${arg} in
@@ -200,6 +203,7 @@ while getopts ${optstring} arg; do
     t) threads="${OPTARG}" ;;
     f) fastp="${OPTARG}" ;;
     b) bowtie="${OPTARG}" ;;
+    k) bowtiebuild="${OPTARG}" ;;
     c) htseqcount="${OPTARG}" ;;      
     :) usage ; display_error "Must supply an argument to -$OPTARG." false ; exit 1 ;;
     ?) usage ; display_error "Invalid option: -${OPTARG}." false ; exit 2 ;;
@@ -246,6 +250,7 @@ if [ $threads == 0 ]; then threads=$(grep -c ^processor /proc/cpuinfo) ; fi
 # Check tools
 if ! command -v ${fastp} &> /dev/null; then display_error "fastp not found (use \$PATH or specify it)" false ; fi
 if ! command -v ${bowtie} &> /dev/null; then display_error "bowtie not found (use \$PATH or specify it)" false ; fi
+if ! command -v ${bowtiebuild} &> /dev/null; then display_error "bowtie-build not found (use \$PATH or specify it)" false ; fi
 if ! command -v ${htseqcount} &> /dev/null; then display_error "htseq-count not found (use \$PATH or specify it)" false ; fi
 mkdir -p ${path_dir_out} 2>/dev/null
 if [[ ! $? -eq 0 ]] ; then usage && display_error "Cannot create output directory (${path_dir_out})" false ; fi
@@ -268,6 +273,7 @@ if [[ ! $? -eq 0 ]] ; then usage && display_error "Cannot create temp directory 
 # # ************************************************************************* #
 # ***** DISPLAY INFOS ***** #
 in=$(echo ${path_dir_in} | sed 's/.*\(.\{47\}\)/...\1/')
+out=$(echo ${path_dir_out} | sed 's/.*\(.\{47\}\)/...\1/')
 nb_fastq=${#fastq_map[@]}
 nb_fastq_ref=$((${#fastq_map[@]}*${#ref_fasta_map[@]}))
 echo -e "╭─INIT──────────────────────────────────────────────────────────────╮"
@@ -281,7 +287,7 @@ for (( ref_num=1; ref_num<=${#ref_title_map[@]}; ref_num++ )); do
     fi 
     rjust $((15+${#ref_title_map[$ref_num]})) true
 done
-echo -ne "| ${colortitle}Output dir  : ${NC}${path_dir_out}" ; rjust $((15+${#path_dir_out})) true
+echo -ne "| ${colortitle}Output dir  : ${NC}${out}" ; rjust $((15+${#out})) true
 echo -ne "| ${colortitle}TMP folder  : ${NC}${dir_tmp}" ; rjust $((15+${#dir_tmp})) true
 echo -ne "| ${colortitle}Threads     : ${NC}${threads}" ; rjust $((15+${#threads})) true
 echo -e "╰───────────────────────────────────────────────────────────────────╯"
@@ -304,10 +310,10 @@ for (( ref_num=1; ref_num<=${#ref_title_map[@]}; ref_num++ )); do
     fi 
     ref_name=${ref_title_map[$ref_num]}
     ref_idx_path="${dir_tmp}/${ref_title_map[$ref_num]}"
-    if [[ ! -f  "${ref_idx_path}.1.ebwt" ]]; then
+    if [[ ! -s "${ref_idx_path}.1.ebwt" ]]; then
         SPINNY_FRAMES=( " reference indexing                                  |" " reference indexing .                                |" " reference indexing ..                               |" " reference indexing ...                              |" " reference indexing ....                             |" " reference indexing .....                            |")
         spinny::start
-        bowtie-build --threads ${threads} -f ${ref_fasta_map[$ref_num]} ${ref_idx_path} >> ${log} 2>&1
+        ${bowtiebuild} --threads ${threads} -f ${ref_fasta_map[$ref_num]} ${ref_idx_path} >> ${log} 2>&1
         spinny::stop
     fi
     echo -ne " ${ref_name}" ; rjust $((15+${#ref_name})) true
@@ -320,8 +326,8 @@ for fastq_name in "${!fastq_map[@]}"; do
   path_fastq=${fastq_map[$fastq_name]}
   path_trim=${path_dir_out}/${fastq_name}_trim.fq.gz
   # Trimming
-  if [[ ! -f  ${path_trim} ]]; then
-      fastp -i ${path_fastq} -o ${path_trim} --length_required 36 --cut_right_window_size 4 --cut_right_mean_quality 20 --thread ${threads} >> ${log} 2>&1
+  if [[ ! -s ${path_trim} ]]; then
+      ${fastp} -i ${path_fastq} -o ${path_trim} --length_required 36 --cut_right_window_size 4 --cut_right_mean_quality 20 --thread ${threads} >> ${log} 2>&1
   fi
   ((cpt_done++))
   percent_done=$(( ${cpt_done}*100/${#fastq_map[@]} ))
@@ -340,8 +346,8 @@ for fastq_name in "${!fastq_map[@]}"; do
         path_trim=${path_dir_out}/${fastq_name}_trim.fq.gz
         path_sam=${path_dir_out}/${fastq_name}_${ref_name}.sam
         # Mapping
-        if [[ ! -f  ${path_sam} ]]; then
-            bowtie -S --threads ${threads} ${ref_idx_path} ${path_trim} > ${path_sam} 2>>${log}
+        if [[ ! -s ${path_sam} ]]; then
+            ${bowtie} --threads ${threads} -x ${ref_idx_path} -U ${path_trim} -S ${path_sam} 2>>${log}
         fi
         ((cpt_done++))
         percent_done=$(( ${cpt_done}*100/${nb_fastq_ref}))
@@ -360,10 +366,11 @@ for fastq_name in "${!fastq_map[@]}"; do
         ref_name=${ref_title_map[$ref_num]}
         path_ref_gff=${ref_gff_map[$ref_num]}
         path_sam=${path_dir_out}/${fastq_name}_${ref_name}.sam
-        path_count=${path_dir_out}/${fastq_name}_${ref_name}_count.sam
+        path_count=${path_dir_out}/${fastq_name}_${ref_name}_count.tsv
         # htseq-count
-        if [[ ! -f  ${path_sam} ]]; then
-            htseq-count ${htseqcount_args} ${path_sam} ${path_ref_gff} > ${path_count} 2>>${log} &
+        if [[ ! -s ${path_count} ]]; then
+            if [ "$slurm_bool" = true ]; then module unload bowtie2 ; fi
+            ${htseqcount} ${htseqcount_args} ${path_sam} ${path_ref_gff} > ${path_count}
             arrayPid+=($!)
             pwait ${threads} ; parallel_progress "htseq-count" "${nb_fastq_ref}"
         fi

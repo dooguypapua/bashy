@@ -547,7 +547,7 @@ if [[ ${update_summary} = true && ! -f ${path_db}/assembly_summary.json ]]; then
       org_name=${arrLine[7]}
       infra_name=$(echo ${arrLine[8]} | sed s/"strain="/""/)
       isolate_name=${arrLine[9]}
-      asm_name=${arrLine[15]}
+      asm_name=$(echo ${arrLine[15]} | sed s/".fasta"/""/)
       format_name=${org_name}
       if [[ infra_name != "" && "$format_name" != *"$infra_name"* ]]
         then format_name="${format_name}_$infra_name"
@@ -564,7 +564,7 @@ if [[ ${update_summary} = true && ! -f ${path_db}/assembly_summary.json ]]; then
       JSON="${JSON}\t},"
       echo -ne ${JSON} >> ${path_db}/assembly_summary.json
     fi
-  done < <(cat /mnt/g/db/vibrioDB/assembly_summary_taxids.txt | tr '\t' '|')
+  done < <(cat ${path_db}/assembly_summary_taxids.txt | tr '\t' '|')
   truncate -s-1 ${path_db}/assembly_summary.json
   echo -ne "\n}\n" >> ${path_db}/assembly_summary.json
   spinny::stop

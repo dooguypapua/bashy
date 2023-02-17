@@ -8,6 +8,8 @@ module load ragtag/1.0.2
 module load seqkit/2.1.0
 module load jq/1.6
 module load mummer4/4.0.0rc1
+module load bowtie2/2.5.0
+module load htseq/0.13.5
 # required paths
 path_tmp="/shared/projects/gv/dgoudenege/tmp"
 export PYTHONPATH="${PYTHONPATH}:/home/umr8227/gv/dgoudenege/.local/lib/python3.9/site-packages/:/usr/lib/python3/dist-packages:/shared/software/miniconda/envs/python-pytorch-tensorflow-3.9-1.11.0-2.6.2/lib/python3.9/site-packages"
