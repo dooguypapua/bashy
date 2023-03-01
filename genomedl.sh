@@ -710,7 +710,7 @@ if [ ${division} == "PHG" ]; then
         bash_process="${dir_tmp}/${acc_name}_phanotate.sh"
         # Construct process bash
         echo -e "gzip -d -c \"${gbk_path}\" 1>\"${dir_tmp}/${acc_name}.gbk\"" > ${bash_process}
-        echo -e "${extractfeat} -sequence \"${dir_tmp}/${acc_name}.gbk\" -outseq \"${dir_tmp}/${acc_name}.fna\"" >> ${bash_process}
+        echo -e "${extractfeat} -sequence \"${dir_tmp}/${acc_name}.gbk\" -outseq \"${dir_tmp}/${acc_name}.fna\" -type source" >> ${bash_process}
         echo -e "${phanotate} --outfmt fasta -o \"${ffn_path}\" \"${dir_tmp}/${acc_name}.fna\"" >> ${bash_process}
         echo -e "sed -i -E s/\"\\[START.+\"/\"phanotate gene \\[${org_name}\\]\"/g \"${ffn_path}\"" >> ${bash_process}
         echo -e "${transeq} -sequence \"${ffn_path}\" -outseq \"${faa_path}\" -frame 1 -table 11 -trim" >> ${bash_process}

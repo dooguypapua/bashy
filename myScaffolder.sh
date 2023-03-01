@@ -202,6 +202,7 @@ if [ -n $SLURM_JOB_ID ] && [ "$SLURM_JOB_ID" != "" ]
   then
   slurm_bool=true
   job_id="$SLURM_JOB_ID"
+  PYTHON="python3.9"
   src_path=$(scontrol show job $SLURM_JOBID | awk -F= '/Command=/{print $2}' | cut -d " " -f 1)
   source "`dirname \"$src_path\"`"/functions.sh
   source "`dirname \"$src_path\"`"/spinny.sh
@@ -210,6 +211,7 @@ else
   path_tmp="/tmp"
   threads=0
   memory=0
+  PYTHON=$(which python)
   FASTA2CAMSA=$(which fasta2camsa_points.py)
   RUN_CAMSA=$(which run_camsa.py)
   CAMSA_POINTS2FASTA=$(which camsa_points2fasta.py)
@@ -720,11 +722,11 @@ for strain in "${array_strain[@]}"
         target_name=$(basename ${array_strain_ref[$i]} | sed s/".fasta"/""/)
         path_contigs_scaffolds_ref=${path_outdir_scaffold}/${target_name}_contigs_scaffolds.fasta
         last_cmd=$(echo "python ${FASTA2CAMSA} ${path_contigs_scaffolds_ref} ${path_contigs_scaffolds_ref} -o scaffolds_points" | tee -a ${path_log})
-        python ${FASTA2CAMSA} ${path_contigs_scaffolds_ref} ${path_contigs_scaffolds_ref} -o scaffolds_points 2>>${path_log} || display_error "merging for '${strain}'" true "merging"
+        ${PYTHON} ${FASTA2CAMSA} ${path_contigs_scaffolds_ref} ${path_contigs_scaffolds_ref} -o scaffolds_points 2>>${path_log} || display_error "merging for '${strain}'" true "merging"
         last_cmd=$(echo "python ${RUN_CAMSA} scaffolds_points/${target_name}_contigs_scaffolds.camsa.points -o ." | tee -a ${path_log})
-        python ${RUN_CAMSA} scaffolds_points/${target_name}"_contigs_scaffolds.camsa.points" -o . 2>>${path_log} || display_error "merging for '${strain}'" true "merging"
+        ${PYTHON} ${RUN_CAMSA} scaffolds_points/${target_name}"_contigs_scaffolds.camsa.points" -o . 2>>${path_log} || display_error "merging for '${strain}'" true "merging"
         last_cmd=$(echo "python ${CAMSA_POINTS2FASTA} --allow-singletons --points merged/merged.camsa.points --fasta ${path_contigs_scaffolds_ref} -o ${path_tmp_merged_camsa}" | tee -a ${path_log})
-        python ${CAMSA_POINTS2FASTA} --allow-singletons --points merged/merged.camsa.points --fasta ${path_contigs_scaffolds_ref} -o ${path_tmp_merged_camsa} 2>>${path_log} || display_error "merging for '${strain}'" true "merging"
+        ${PYTHON} ${CAMSA_POINTS2FASTA} --allow-singletons --points merged/merged.camsa.points --fasta ${path_contigs_scaffolds_ref} -o ${path_tmp_merged_camsa} 2>>${path_log} || display_error "merging for '${strain}'" true "merging"
         path_tmp_merged_camsa=${path_contigs_scaffolds_ref}
       done
       awk 'BEGIN {RS=">";FS="\n"} NR>1 {seq=""; for (i=2;i<=NF;i++) seq=seq$i; print ">"$1"\n"seq}' ${path_tmp_merged_camsa} > ${path_final_out}

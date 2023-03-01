@@ -5,7 +5,7 @@
 # ************************************************************************* #
 function banner {
   echo -ne "╭───────────────────────────────────────────────────────────────────╮\n|"
-  echo -ne "${colortitle} ＲＮＡｓｅｑ   ｗｏｒｋｆｌｏｗ${NC}                                   "
+  echo -ne "${colortitle} ＲＮＡｓｅｑ   ｗｏｒｋｆｌｏｗ ${NC}                            v.1.0 "
   echo -ne "|\n╰───────────────────────────────────────────────────────────────────╯\n"
 }
 
@@ -53,7 +53,9 @@ function usage {
     echo -e "|"${colortitlel}$' Tool locations: '${NC}"                                                  |"
     echo "|"$' Specify following tool location if not in ${PATH}'"                 |"
     echo "|"$'  --fastp'"                                                          |"
-    echo "|"$'  --bowtie'"                                                         |"    
+    echo "|"$'  --bowtie'"                                                         |"
+    echo "|"$'  --bowtie-build'"                                                   |"
+    echo "|"$'  --samtools'"                                                       |"
     echo "|"$'  --htseq-count'"                                                    |"    
     echo "╰───────────────────────────────────────────────────────────────────╯"
 }
@@ -162,6 +164,7 @@ start_time=$SECONDS
 # Tools paths
 bowtie="bowtie2"
 bowtiebuild="bowtie2-build"
+samtools="samtools"
 fastp="fastp"
 htseqcount="htseq-count"
 # Colors
@@ -181,17 +184,19 @@ for arg in "$@"; do
     "--fastp") set -- "$@" "-f" ;;
     "--bowtie") set -- "$@" "-b" ;;
     "--bowtie-build") set -- "$@" "-k" ;;
+    "--samtools") set -- "$@" "-s" ;;
     "--htseq-count") set -- "$@" "-c" ;;
     "-fastp") usage ; display_error "Invalid option: -fastp." false ;;
     "-bowtie") usage ; display_error "Invalid option: -bowtie." false ;;
     "-bowtie-build") usage ; display_error "Invalid option: -bowtie-build." false ;;
+    "-samtools") usage ; display_error "Invalid option: -samtools." false ;;
     "-htseq-count") usage ; display_error "Invalid option: -htseq-count." false ;;
     *) set -- "$@" "$arg"
   esac
 done
 # list of arguments expected in the input
 ref_fasta_list=""
-optstring=":i:r:g:o:f:b:k:c:t:w:h"
+optstring=":i:r:g:o:f:b:k:s:c:t:w:h"
 cpt_ref=1
 while getopts ${optstring} arg; do
   case ${arg} in
@@ -204,6 +209,7 @@ while getopts ${optstring} arg; do
     f) fastp="${OPTARG}" ;;
     b) bowtie="${OPTARG}" ;;
     k) bowtiebuild="${OPTARG}" ;;
+    k) samtools="${OPTARG}" ;;
     c) htseqcount="${OPTARG}" ;;      
     :) usage ; display_error "Must supply an argument to -$OPTARG." false ; exit 1 ;;
     ?) usage ; display_error "Invalid option: -${OPTARG}." false ; exit 2 ;;
@@ -251,6 +257,7 @@ if [ $threads == 0 ]; then threads=$(grep -c ^processor /proc/cpuinfo) ; fi
 if ! command -v ${fastp} &> /dev/null; then display_error "fastp not found (use \$PATH or specify it)" false ; fi
 if ! command -v ${bowtie} &> /dev/null; then display_error "bowtie not found (use \$PATH or specify it)" false ; fi
 if ! command -v ${bowtiebuild} &> /dev/null; then display_error "bowtie-build not found (use \$PATH or specify it)" false ; fi
+if ! command -v ${samtools} &> /dev/null; then display_error "samtools not found (use \$PATH or specify it)" false ; fi
 if ! command -v ${htseqcount} &> /dev/null; then display_error "htseq-count not found (use \$PATH or specify it)" false ; fi
 mkdir -p ${path_dir_out} 2>/dev/null
 if [[ ! $? -eq 0 ]] ; then usage && display_error "Cannot create output directory (${path_dir_out})" false ; fi
@@ -325,8 +332,10 @@ cpt_done=0
 for fastq_name in "${!fastq_map[@]}"; do
   path_fastq=${fastq_map[$fastq_name]}
   path_trim=${path_dir_out}/${fastq_name}_trim.fq.gz
+  path_bam=${path_dir_out}/${fastq_name}_${ref_name}.bam
+  path_count=${path_dir_out}/${fastq_name}_${ref_name}_count.tsv
   # Trimming
-  if [[ ! -s ${path_trim} ]]; then
+  if [[ ! -s ${path_trim} ]] && [[ ! -s ${path_bam} ]] && [[ ! -s ${path_count} ]] ; then
       ${fastp} -i ${path_fastq} -o ${path_trim} --length_required 36 --cut_right_window_size 4 --cut_right_mean_quality 20 --thread ${threads} >> ${log} 2>&1
   fi
   ((cpt_done++))
@@ -344,10 +353,13 @@ for fastq_name in "${!fastq_map[@]}"; do
         ref_name=${ref_title_map[$ref_num]}
         ref_idx_path="${dir_tmp}/${ref_name}"
         path_trim=${path_dir_out}/${fastq_name}_trim.fq.gz
-        path_sam=${path_dir_out}/${fastq_name}_${ref_name}.sam
+        path_bam=${path_dir_out}/${fastq_name}_${ref_name}.bam
+        path_count=${path_dir_out}/${fastq_name}_${ref_name}_count.tsv      
         # Mapping
-        if [[ ! -s ${path_sam} ]]; then
-            ${bowtie} --threads ${threads} -x ${ref_idx_path} -U ${path_trim} -S ${path_sam} 2>>${log}
+        if [[ ! -s ${path_bam} ]] && [[ ! -s ${path_count} ]] ; then
+            ${bowtie} --threads ${threads} -x ${ref_idx_path} -U ${path_trim} | ${samtools} view -@${threads} -bS -  | ${samtools} sort -@${threads} - ${path_bam} 2>>${log}
+            ${samtools} index -@${threads} ${path_bam}
+            ((cpt_compute++))
         fi
         ((cpt_done++))
         percent_done=$(( ${cpt_done}*100/${nb_fastq_ref}))
@@ -357,7 +369,6 @@ done
 echo -ne '\e[2A\e[K\n'
 echo -ne "| ${colortitle}Mapping     :${NC} done" ; rjust 19 true
 
-
 # ***** HTSEQ COUNT *****#
 echo -ne "| ${colortitle}Count       :${NC}${colortitlel} in progress${NC}" ; rjust 26 true
 cpt_done=0
@@ -365,12 +376,12 @@ for fastq_name in "${!fastq_map[@]}"; do
     for (( ref_num=1; ref_num<=${#ref_title_map[@]}; ref_num++ )); do
         ref_name=${ref_title_map[$ref_num]}
         path_ref_gff=${ref_gff_map[$ref_num]}
-        path_sam=${path_dir_out}/${fastq_name}_${ref_name}.sam
+        path_bam=${path_dir_out}/${fastq_name}_${ref_name}.bam
         path_count=${path_dir_out}/${fastq_name}_${ref_name}_count.tsv
         # htseq-count
         if [[ ! -s ${path_count} ]]; then
             if [ "$slurm_bool" = true ]; then module unload bowtie2 ; fi
-            ${htseqcount} ${htseqcount_args} ${path_sam} ${path_ref_gff} > ${path_count}
+            ${htseqcount} ${htseqcount_args} ${path_bam} ${path_ref_gff} > ${path_count}
             arrayPid+=($!)
             pwait ${threads} ; parallel_progress "htseq-count" "${nb_fastq_ref}"
         fi
@@ -378,7 +389,7 @@ for fastq_name in "${!fastq_map[@]}"; do
 done
 # Final wait & progress
 while [ $(jobs -p | wc -l) -gt 1 ]; do parallel_progress "htseq-count" "${nb_fastq_ref}" ; sleep 1 ; done
-echo -ne '\e[2A\e[K\n'
+echo -ne '\e[1A\e[K'
 echo -ne "| ${colortitle}Count       :${NC} done" ; rjust 19 true
 # End processing
 echo -e "╰───────────────────────────────────────────────────────────────────╯"
