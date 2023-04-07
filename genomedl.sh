@@ -47,16 +47,19 @@ function usage {
     echo -e "|"${colortitlel}$' Optional options:'${NC}"                                                 |"
     echo "|"$'  -i Taxonomic identifier(s) (comma-separated entries)'"             |"
     echo "|"$'     Caudovirales  : "28883"'"                                       |"
+    echo "|"$'     Kyanoviridae  : "2946160"'"                                     |"
+    echo "|"$'     Straboviridae : "2946170"'"                                     |"
     echo "|"$'     Vibrionaceae  : "641"'"                                         |"
     echo "|"$'     V.crassostreae: "246167"'"                                      |"
     echo "|"$'     V.chagasii    : "170679"'"                                      |"
+    echo "|"$'  -l List only mode'"                                                |"    
     echo "|"$'  -t Number of threads'"                                             |"
     echo "|"$'     Default       : 0 (all)'"                                       |"    
     echo "|"$'  -f Force rsync update'"                                            |"
     echo "|"$'     Default       : conservative'"                                  |"
     echo "|"$'  -w Temporary folder'"                                              |"
     echo "|"$'     Default       : /tmp'"                                          |"    
-    echo "|"$'  -r Number of attempts to retry for rsync'"                         |"
+    echo "|"$'  -r Number of attempts to retry for rsync/checkv'"                  |"
     echo "|"$'     Default       : 5'"                                             |"
     echo "|"$'  -c Daemon connection timeout for rsync'"                           |"
     echo "|"$'     Default       : 5'"                                             |"
@@ -66,6 +69,7 @@ function usage {
     echo -e "|"${colortitlel}$' Tool locations: '${NC}"                                                  |"
     echo "|"$' Specify following tool location if not in ${PATH}'"                 |"
     echo "|"$'  --prodigal'"                                                       |"
+    echo "|"$'  --check'"                                                          |"
     echo "|"$'  --extractfeat'"                                                    |"    
     echo "|"$'  --diamond'"                                                        |"    
     echo "|"$'  --phanotate'"                                                      |"    
@@ -170,11 +174,13 @@ title "genomedl | running"
 path_db=""
 tax_ids=""
 tmp_folder="/tmp"
+list_only=false
+new_db=false
 threads=0
 update_summary=false
 update_rsync=false
 elapse_stop=0
-rsync_max_retry=5
+max_retry=5
 contimeout=5
 all_phage=false
 update_dmnd_prot=false
@@ -189,6 +195,7 @@ extractfeat="extractfeat"
 diamond="diamond"
 phanotate="phanotate.py"
 transeq="transeq"
+checkv="checkv"
 # Paths & URLs
 taxonomy_efetch_url="https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=taxonomy"
 taxdump_url="ftp.ncbi.nlm.nih.gov/pub/taxonomy/new_taxdump/new_taxdump.tar.gz"
@@ -211,16 +218,18 @@ for arg in "$@"; do
     "--diamond") set -- "$@" "-m" ;;
     "--phanotate") set -- "$@" "-g" ;;
     "--transeq") set -- "$@" "-a" ;;
+    "--checkv") set -- "$@" "-k" ;;
     "-prodigal") usage ; display_error "Invalid option: -prodigal." false ;;
     "-extractfeat") usage ; display_error "Invalid option: -extractfeat." false ;;
     "-diamond") usage ; display_error "Invalid option: -diamond." false ;;
     "-phanotate") usage ; display_error "Invalid option: -phanotate." false ;;
     "-transeq") usage ; display_error "Invalid option: -transeq." false ;;
+    "-checkv") usage ; display_error "Invalid option: -checkv." false ;;
     *) set -- "$@" "$arg"
   esac
 done
 # list of arguments expected in the input
-optstring=":o:d:i:w:r:t:c:p:e:m:g:s:a:fh"
+optstring=":o:d:i:w:r:t:c:p:e:m:g:s:a:k:flh"
 while getopts ${optstring} arg; do
   case ${arg} in
     h) usage ; exit 0 ;;
@@ -228,14 +237,16 @@ while getopts ${optstring} arg; do
     d) division="${OPTARG^^}" ;;
     i) tax_ids="${OPTARG}" ;;
     f) update_rsync=true ;;
+    l) list_only=true ;;
     w) tmp_folder="${OPTARG}" ;;
     t) threads="${OPTARG}" ;;
-    r) rsync_max_retry="${OPTARG}" ;;
+    r) max_retry="${OPTARG}" ;;
     c) contimeout="${OPTARG}" ;;
     s) elapse_stop="${OPTARG}" ;;
     p) prodigal="${OPTARG}" ;;
     e) extractfeat="${OPTARG}" ;;
     m) diamond="${OPTARG}" ;;      
+    k) checkv="${OPTARG}" ;;      
     :) usage ; display_error "Must supply an argument to -$OPTARG." false ; exit 1 ;;
     ?) usage ; display_error "Invalid option: -${OPTARG}." false ; exit 2 ;;
   esac
@@ -248,7 +259,7 @@ if [[ "${division}" != "BCT" && "${division}" != "PHG" ]]; then usage ; display_
 if [[ ! -z "${tax_ids}" && ! "${tax_ids}" =~ ^[0-9,]+$ ]]; then usage ; display_error "Taxonomy identifier is invalid (must be integer)" false ; fi
 if [[ ! -z "${threads}" && ! "${threads}" =~ ^[0-9,]+$ ]]; then usage ; display_error "Number of threads is invalid (must be integer)" false ; fi
 if [ $threads == 0 ]; then threads=$(grep -c ^processor /proc/cpuinfo) ; fi
-if [[ ! -z "${rsync_max_retry}" && ! "${rsync_max_retry}" =~ ^[0-9,]+$ ]]; then usage ; display_error "Number of rsync attempts is invalid (must be integer)" false ; fi
+if [[ ! -z "${max_retry}" && ! "${max_retry}" =~ ^[0-9,]+$ ]]; then usage ; display_error "Number of rsync/checkv attempts is invalid (must be integer)" false ; fi
 if [[ ! -z "${contimeout}" && ! "${contimeout}" =~ ^[0-9,]+$ ]]; then usage ; display_error "Number of daemon connection timeout is invalid (must be integer)" false ; fi
 # Duration stop time
 if [ $elapse_stop != 0 ]; then 
@@ -270,10 +281,16 @@ if ! command -v ${prodigal} &> /dev/null; then display_error "prodigal not found
 if ! command -v ${diamond} &> /dev/null; then display_error "diamond not found (use \$PATH or specify it)" false ; fi
 if ! command -v ${phanotate} &> /dev/null; then display_error "phanotate not found (use \$PATH or specify it)" false ; fi
 if ! command -v ${transeq} &> /dev/null; then display_error "transeq not found (use \$PATH or specify it)" false ; fi
+if ! command -v ${checkv} &> /dev/null; then display_error "checkv not found (use \$PATH or specify it)" false ; fi
+if [ "$CHECKVDB" = "" ]; then display_error "checkv required a reference database path variable \$CHECKVDB" false ; fi
+if [[ ! -d $CHECKVDB ]]; then display_error "reference database path defined in \$CHECKVDB not found" false ; fi
 # Data & Output folder
 if [ "${division}" == "BCT" ]; then summary_url="ftp.ncbi.nlm.nih.gov/genomes/genbank/bacteria/assembly_summary.txt" ; division_title="bacteria" ; fi
 if [ "${division}" == "PHG" ]; then summary_url="ftp.ncbi.nlm.nih.gov/genomes/genbank/viral/assembly_summary.txt" ; division_title="phage" ; fi
-mkdir -p ${path_db} 2>/dev/null
+if [ ! -d "$path_db" ]; then
+  mkdir -p ${path_db} 2>/dev/null
+  new_db=true
+fi
 if [[ ! $? -eq 0 ]] ; then usage && display_error "Cannot create output directory (${path_db})" false ; fi
 if [[ -f ${path_db}/assembly_summary.txt && ! -w ${path_db}/assembly_summary.txt ]]; then display_error "You don't have write permission on \"assembly_summary.txt\"" true ; fi
 log="${path_db}/genomedl.log"
@@ -292,6 +309,7 @@ download_urls_genbank="${dir_tmp}/download_urls_genbank.txt"
 download_urls="${dir_tmp}/download_urls.txt"
 download_urls_final="${dir_tmp}/download_urls_filtered.txt"
 taxidlineage_dmp="${dir_tmp}/taxidlineage.dmp"
+fullnamelineage_dmp="${dir_tmp}/fullnamelineage.dmp"
 nodes_dmp="${dir_tmp}/nodes.dmp"
 summary_sorted="${dir_tmp}/assembly_summary_sorted.txt"
 
@@ -315,7 +333,7 @@ echo -e "╭─INIT────────────────────�
 echo -ne "| ${colortitle}DB folder   : ${NC}${path_db}" ; rjust $((15+${#path_db})) true
 echo -ne "| ${colortitle}TMP folder  : ${NC}${dir_tmp}" ; rjust $((15+${#dir_tmp})) true
 echo -ne "| ${colortitle}Threads     : ${NC}${threads}" ; rjust $((15+${#threads})) true
-echo -ne "| ${colortitle}RsyncRetry  : ${NC}${rsync_max_retry}" ; rjust $((15+${#rsync_max_retry})) true
+echo -ne "| ${colortitle}RsyncRetry  : ${NC}${max_retry}" ; rjust $((15+${#max_retry})) true
 echo -ne "| ${colortitle}RsyncTimeout: ${NC}${contimeout}" ; rjust $((15+${#contimeout})) true
 if [ ! -z ${elapse_stop_sec} ]; then
   echo -ne "| ${colortitle}Duration    : ${NC}${elapse_stop}" ; rjust $((15+${#elapse_stop})) true
@@ -328,11 +346,15 @@ if [[ -z "${tax_ids}" ]]; then
 else
   echo -ne "| ${colortitle}Taxonomy ID : ${NC}${tax_ids}" ; rjust $((15+${#tax_ids})) true
 fi
-# Display update mode
-if [ ${update_rsync} = true ]; then
-  echo -ne "| ${colortitle}Update mode${NC} : force" ; rjust "20" true
+# Display list/update mode
+if [ ${list_only} = true ]; then
+  echo -ne "| ${colortitle}List only  ${NC} : true" ; rjust "19" true
 else
-  echo -ne "| ${colortitle}Update mode${NC} : conservative" ; rjust "27" true
+  if [ ${update_rsync} = true ]; then
+    echo -ne "| ${colortitle}Update mode${NC} : force" ; rjust "20" true
+  else
+    echo -ne "| ${colortitle}Update mode${NC} : conservative" ; rjust "27" true
+  fi
 fi
 # Display last release date
 if [ -f "${path_db}/release.txt" ]; then
@@ -360,8 +382,8 @@ spinny::start
 cur_ass_summary="${path_db}/assembly_summary.txt"
 tmp_ass_summary="${dir_tmp}/assembly_summary.txt"
 cpt_retry=0
-while [ $cpt_retry -le $rsync_max_retry ]
-    do rsync -u --copy-links --no-motd --contimeout=${contimeout} -q rsync://${summary_url} ${tmp_ass_summary} 2>>${log} | tee ${rsync_out_ass_sum}
+while [ $cpt_retry -le $max_retry ]
+    do rsync -u --chmod=777 --copy-links --no-motd --contimeout=${contimeout} -q rsync://${summary_url} ${tmp_ass_summary} 2>>${log} | tee ${rsync_out_ass_sum}
     if [ -f ${tmp_ass_summary} ]; then break ; fi
     sleep 5
     ((cpt_retry++))
@@ -382,7 +404,7 @@ spinny::start
 cur_taxdump="${path_db}/taxdump.tar.gz"
 tmp_taxdump="${dir_tmp}/taxdump.tar.gz"
 cpt_retry=0
-while [ $cpt_retry -le $rsync_max_retry ]
+while [ $cpt_retry -le $max_retry ]
     do rsync -u --copy-links --no-motd --contimeout=${contimeout} -q rsync://${taxdump_url} ${tmp_taxdump} 2>>${log} | tee ${rsync_out_tax_dump}
     if [ -f ${tmp_taxdump} ]; then break ; fi
     sleep 5
@@ -434,7 +456,7 @@ if [[ ${update_summary} = true || ! -f ${path_db}/assembly_summary_taxids.txt ||
     # Get taxidlineage
     SPINNY_FRAMES=( " taxidlineage extraction                             |" " taxidlineage extraction .                           |" " taxidlineage extraction ..                          |" " taxidlineage extraction ...                         |" " taxidlineage extraction ....                        |" " taxidlineage extraction .....                       |")
     spinny::start
-    tar xf ${cur_taxdump} -C ${dir_tmp} $(get_base ${taxidlineage_dmp}) 2>>${log}
+    tar xf ${cur_taxdump} -C ${dir_tmp} $(get_base ${taxidlineage_dmp}) $(get_base ${fullnamelineage_dmp}) 2>>${log}
     spinny::stop
     # Get only taxids in the lineage section
     SPINNY_FRAMES=( " taxids to lineage                                   |" " taxids to lineage .                                 |" " taxids to lineage ..                                |" " taxids to lineage ...                               |" " taxids to lineage ....                              |" " taxids to lineage .....                             |")
@@ -490,18 +512,23 @@ if [[ ${update_summary} = true || ! -f ${path_db}/assembly_summary_taxids.txt ||
 fi
 # Count genomes
 nb_total=$(grep -cPv "^#" ${path_db}/assembly_summary_taxids.txt)
+echo -ne " ${nb_total} genomes" ; rjust $((23+${#nb_total})) true
+
+# Stop here in list only mode
+if [ ${list_only} = true ]; then
+  if [ ${new_db} = true ]; then rm -rf ${new_db} ; fi
+  echo -e "╰───────────────────────────────────────────────────────────────────╯"
+  exit 0
+fi
+
 # Create associative array for fast basename from URL
-spinny::start
-SPINNY_FRAMES=( " create basename hashmap                             |" " create basename hashmap .                           |" " create basename hashmap ..                          |" " create basename hashmap ...                         |" " create basename hashmap ....                        |" " create basename hashmap .....                       |")
 declare -A assArrayURL
 while read -r dl_line; do
   basename=$(get_base ${dl_line})
   assArrayURL["$basename"]=${dl_line}
   echo $basename >> ${dir_tmp}/list_all.txt
 done < ${download_urls}
-# End
-spinny::stop
-echo -ne " ${nb_total} genomes" ; rjust $((23+${#nb_total})) true
+
 
 # ***** COMPARE NEW and OLD assemblies ***** #
 echo -ne "| ${colortitle}Synchronize :${NC}"
@@ -534,9 +561,14 @@ diff ${dir_tmp}/list_yet.txt ${dir_tmp}/list_all.txt | grep "<" | cut -d " " -f 
 spinny::stop
 
 # Create assembly_summary JSON
-if [[ ${update_summary} = true && ! -f ${path_db}/assembly_summary.json ]]; then
+if [[ ${update_summary} = true || ! -f ${path_db}/assembly_summary.json ]]; then
   SPINNY_FRAMES=( " create assembly_summary JSON                        |" " create assembly_summary JSON .                      |" " create assembly_summary JSON ..                     |" " create assembly_summary JSON ...                    |" " create assembly_summary JSON ....                   |" " create assembly_summary JSON .....                  |")
   spinny::start
+  # reduce fulllineage to speed grep
+  grep -v "#" /mnt/g/db/straboDB/assembly_summary_taxids.txt | cut -f 6 > ${dir_tmp}/taxid.lst
+  grep -v "#" /mnt/g/db/straboDB/assembly_summary_taxids.txt | cut -f 7 >> ${dir_tmp}/taxid.lst
+  cat ${dir_tmp}/taxid.lst | sort -u > ${dir_tmp}/taxid_sorted.lst
+  grep -f ${dir_tmp}/taxid_sorted.lst ${fullnamelineage_dmp} > ${dir_tmp}/fullnamelineage_reduced.dmp
   IFS='|'
   echo -ne "{" > ${path_db}/assembly_summary.json
   while read -a arrLine; do
@@ -549,16 +581,28 @@ if [[ ${update_summary} = true && ! -f ${path_db}/assembly_summary.json ]]; then
       isolate_name=${arrLine[9]}
       asm_name=$(echo ${arrLine[15]} | sed s/".fasta"/""/)
       format_name=${org_name}
-      if [[ infra_name != "" && "$format_name" != *"$infra_name"* ]]
+      if [[ $taxid != "" ]]; then
+        lineage=$(grep -E "^${taxid}\s" ${dir_tmp}/fullnamelineage_reduced.dmp | cut -f 5)
+      else
+        lineage=""
+      fi
+      if [[ $sp_taxid != "" ]]; then
+        lineage_sp=$(grep -E "^${sp_taxid}\s" ${dir_tmp}/fullnamelineage_reduced.dmp | cut -f 5)
+      else
+        lineage_sp=""
+      fi
+      if [[ $infra_name != "" && "$format_name" != *"$infra_name"* ]]
         then format_name="${format_name}_$infra_name"
       fi
-      if [[ isolate_name != "" && "$format_name" != *"$isolate_name"* ]]
+      if [[ $isolate_name != "" && "$format_name" != *"$isolate_name"* ]]
         then format_name="${format_name}_$isolate_name"
       fi    
       JSON="\n\"${acc_name}\":"
       JSON="${JSON}\t{\n"
       JSON="${JSON}\t\"taxid\":\"${taxid}\",\n"
       JSON="${JSON}\t\"sp_taxid\":\"${sp_taxid}\",\n"
+      JSON="${JSON}\t\"lineage\":\"${lineage}\",\n"
+      JSON="${JSON}\t\"sp_lineage\":\"${lineage_sp}\",\n"
       JSON="${JSON}\t\"org_name\":\"${format_name}\",\n"
       JSON="${JSON}\t\"asm_name\":\"${asm_name}\"\n"
       JSON="${JSON}\t},"
@@ -594,7 +638,7 @@ else
     ((cpt_done++))
     percent_done=$(( ${cpt_done}*100/${nb_sync} ))
     if [[ ${update_rsync} = true || ! -d ${path_db_acc} ]]; then
-      while [ $cpt_retry -le $rsync_max_retry ]
+      while [ $cpt_retry -le $max_retry ]
           do
           progress ${percent_done} "${acc_name}/${cpt_retry}" ${colortitlel}
           rsync -r -u --no-motd --copy-links --contimeout=${contimeout} --itemize-changes --exclude-from=${rsync_exclude} ${dl_line} ${path_db}/ >${rsync_out_dl} 2>>${log} && break
@@ -610,7 +654,7 @@ else
       else
         progress ${percent_done} "${acc_name}" ${colorterm}
       # Check genome folder and gbff file
-      if ! ls ${path_db_acc}/*.gbff.gz >/dev/null 2>&1; then
+      if [ ! -e "${path_db_acc}"/*.gbff.gz ]; then      
         echo -e "${basename}: rsync failed" >> ${log}
         ((cpt_rsync_failed++))
       fi
@@ -621,9 +665,6 @@ else
   echo -ne '\e[1A\e[K'
 fi
 echo -e "\n╰───────────────────────────────────────────────────────────────────╯"
-
-
-
 
 
 # ************************************************************************* #
@@ -647,7 +688,7 @@ if [[ ${totalMissingFFN} -gt 0 ]]; then
   for ass_dir in ${path_db}/GC*
     do
     if [[ ! -z "${elapse_stop_sec}" && $(($SECONDS-start_time)) -ge ${elapse_stop_sec} ]]; then summary true ; exit 0 ; fi
-    if ! ls ${ass_dir}/*_gene.ffn.gz 1> /dev/null 2>&1; then
+    if [ ! -e "${ass_dir}"/*_gene.ffn.gz ]; then      
       # Paths
       gbk_path=$(ls -1 ${ass_dir}/*.gbff.gz)
       ffn_path=$(echo "${gbk_path}" | sed s/"_genomic.gbff.gz"/"_gene.ffn"/)
@@ -699,7 +740,7 @@ if [ ${division} == "PHG" ]; then
     for ass_dir in ${path_db}/GC*
       do
       if [[ ! -z "${elapse_stop_sec}" && $(($SECONDS-start_time)) -ge ${elapse_stop_sec} ]]; then summary true ; exit 0 ; fi
-      if ! ls ${ass_dir}/*_phanotate.ffn.gz 1> /dev/null 2>&1; then
+      if [ ! -e "${ass_dir}"/*_phanotate.ffn.gz ]; then
         # Paths
         gbk_path=$(ls -1 ${ass_dir}/*.gbff.gz)
         ffn_path=$(echo "${gbk_path}" | sed s/"_genomic.gbff.gz"/"_phanotate.ffn"/)
@@ -733,6 +774,56 @@ if [ ${division} == "PHG" ]; then
   fi
 fi
 
+
+# ***** CheckV ***** # (for phage)
+if [[ ! -z "${elapse_stop_sec}" && $(($SECONDS-start_time)) -ge ${elapse_stop_sec} ]]; then summary true ; exit 0 ; fi
+if [ ${division} == "PHG" ]; then
+  echo -ne "| ${colortitle}CheckV      :${NC}"
+  title "genomedl | checkv"
+  SPINNY_FRAMES=( " check missing                                       |" " check missing .                                     |" " check missing ..                                    |" " check missing ...                                   |" " check missing ....                                  |" " check missing .....                                 |")
+  spinny::start
+  totalMissingCheckV=$((${nb_total}-${cpt_rsync_failed}-$(find ${path_db}/GC* -type f -name '*_checkv.tsv' | wc -l)))
+  spinny::stop
+  arrayPid=()
+  cpt_done=0
+  if [[ "${totalMissingCheckV}" != "0" ]]; then
+    echo -ne " ${totalMissingCheckV} missing checkv files" ; rjust $((36+${#totalMissingCheckV})) true
+    for ass_dir in ${path_db}/GC*
+      do
+      if [[ ! -z "${elapse_stop_sec}" && $(($SECONDS-start_time)) -ge ${elapse_stop_sec} ]]; then summary true ; exit 0 ; fi
+      if [ ! -e "${ass_dir}"/*_checkv.tsv ]; then
+        # Paths
+        fna_path=$(ls -1 ${ass_dir}/*.fna.gz)
+        acc_name=$(get_base ${fna_path} | sed s/"_genomic.fna.gz"/""/)
+        path_checkv=${ass_dir}/${acc_name}_checkv.tsv
+        bash_process="${dir_tmp}/${acc_name}_checkv.sh"
+        # Construct process bash
+        echo -e "gzip -d -c \"${fna_path}\" 1>\"${dir_tmp}/${acc_name}.fna\"" > ${bash_process}
+        echo -e "cpt_retry=0" >> ${bash_process}
+        echo -e "while [ ! -f ${path_checkv} ] && [ \$cpt_retry -le $max_retry ]; do" >> ${bash_process}
+        echo -e "  ${checkv} completeness ${dir_tmp}/${acc_name}.fna ${dir_tmp}/${acc_name}_checkV" >> ${bash_process}
+        echo -e "  cp ${dir_tmp}/${acc_name}_checkV/completeness.tsv ${path_checkv}" >> ${bash_process}
+        echo -e "  rm -rf ${dir_tmp}/${acc_name}.fna ${dir_tmp}/${acc_name}_checkV" >> ${bash_process}
+        # Delete results file if NA in 'aai_completeness'
+        echo "  if [ \"\$(tail -n 1 ${path_checkv} | cut -f 5)\" == \"NA\" ]; then rm -f ${path_checkv} ; fi" >> ${bash_process}
+        echo "  ((cpt_retry++))" >> ${bash_process}
+        echo "done" >> ${bash_process}
+        # Launch process
+        bash ${bash_process} 2>>${log} &
+        arrayPid+=($!)
+        pwait ${threads} ; parallel_progress "checkv" "${totalMissingCheckV}"
+      fi
+    done
+    # Final wait & progress
+    while [ $(jobs -p | wc -l) -gt 1 ]; do parallel_progress "checkv" ${totalMissingCheckV} ; sleep 1 ; done
+    rm -f "${dir_tmp}/*_checkv.sh"
+    echo -e '\e[1A\e[K'
+  else
+    echo -ne " any missing checkv file" ; rjust 38 false ; echo -e ""
+  fi
+fi
+
+
 # ***** Prodigal ***** # (for missing bacteria genes/CDS)
 if [[ ! -z "${elapse_stop_sec}" && $(($SECONDS-start_time)) -ge ${elapse_stop_sec} ]]; then summary true ; exit 0 ; fi
 if [ ${division} == "BCT" ]; then
@@ -749,7 +840,7 @@ if [ ${division} == "BCT" ]; then
     for ass_dir in ${path_db}/GC*
       do
       if [[ ! -z "${elapse_stop_sec}" && $(($SECONDS-start_time)) -ge ${elapse_stop_sec} ]]; then summary true ; exit 0 ; fi
-      if ! ls ${ass_dir}/*_protein.faa.gz 1> /dev/null 2>&1; then
+      if [ ! -e "${ass_dir}"/*_protein.faa.gz ]; then      
         # Paths
         fna_path=$(ls -1 ${ass_dir}/*.fna.gz)
         gbk_path=$(ls -1 ${ass_dir}/*.gbff.gz)
@@ -801,7 +892,7 @@ if [ ${division} == "PHG" ]; then
     for ass_dir in ${path_db}/GC*
       do
       if [[ ! -z "${elapse_stop_sec}" && $(($SECONDS-start_time)) -ge ${elapse_stop_sec} ]]; then summary true ; exit 0 ; fi
-      if ! ls ${ass_dir}/*_protein.faa.gz 1> /dev/null 2>&1; then
+      if [ ! -e "${ass_dir}"/*_protein.faa.gz ]; then      
         # Paths
         gbk_path=$(ls -1 ${ass_dir}/*.gbff.gz)
         faa_path=$(echo ${gbk_path} | sed s/"_genomic.gbff.gz"/"_protein.faa"/)
@@ -850,7 +941,7 @@ if [[ "${totalMissingDMND}" != "0" ]]; then
   for ass_dir in ${path_db}/GC*
     do
     if [[ ! -z "${elapse_stop_sec}" && $(($SECONDS-start_time)) -ge ${elapse_stop_sec} ]]; then summary true ; exit 0 ; fi
-    if ! ls ${ass_dir}/*_protein.dmnd 1> /dev/null 2>&1; then
+    if [ ! -e "${ass_dir}"/*_protein.dmnd ]; then
       update_dmnd_prot=true
       faa_path=$(ls -1 ${ass_dir}/*_protein.faa.gz)
       dmnd_path=$(echo ${faa_path} | sed s/"_protein.faa.gz"/"_protein.dmnd"/)
@@ -860,7 +951,7 @@ if [[ "${totalMissingDMND}" != "0" ]]; then
       pwait ${threads} ; parallel_progress "diamond makedb" "${totalMissingDMND}"
     fi
     if [ ${division} == "PHG" ]; then
-      if ! ls ${ass_dir}/*_phanotate.dmnd 1> /dev/null 2>&1; then
+      if [ ! -e "${ass_dir}"/*_phanotate.dmnd ]; then 
         update_dmnd_phanotate=true
         faa_path=$(ls -1 ${ass_dir}/*_phanotate.faa.gz)
         dmnd_path=$(echo ${faa_path} | sed s/"_phanotate.faa.gz"/"_phanotate.dmnd"/)

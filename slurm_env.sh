@@ -1,4 +1,5 @@
 # required modules
+module load python/3.7
 module load python/3.9
 module load fastp/0.23.1
 module load abyss/2.2.1
@@ -14,7 +15,8 @@ module load pysam/0.16.0
 module load samtools/1.15.1
 # required paths
 path_tmp="/shared/projects/gv/dgoudenege/tmp"
-export PYTHONPATH="${PYTHONPATH}:/home/umr8227/gv/dgoudenege/.local/lib/python3.9/site-packages/:/home/umr8227/gv/dgoudenege/.local/lib/python3.8/site-packages/:/usr/lib/python3/dist-packages" #:/shared/software/miniconda/envs/python-pytorch-tensorflow-3.9-1.11.0-2.6.2/lib/python3.9/site-packages"
+# export PYTHONPATH="${PYTHONPATH}:/home/umr8227/gv/dgoudenege/.local/lib/python3.9/site-packages/:/home/umr8227/gv/dgoudenege/.local/lib/python3.8/site-packages/:/usr/lib/python3/dist-packages" #:/shared/software/miniconda/envs/python-pytorch-tensorflow-3.9-1.11.0-2.6.2/lib/python3.9/site-packages"
+export PYTHONPATH="${PYTHONPATH}:/usr/lib/python3/dist-packages:/home/umr8227/gv/dgoudenege/.local/lib/python3.8/site-packages"
 FASTA2CAMSA=/home/umr8227/gv/dgoudenege/.local/lib/python3.9/site-packages/camsa/utils/fasta/fasta2camsa_points.py
 RUN_CAMSA=/home/umr8227/gv/dgoudenege/.local/lib/python3.9/site-packages/camsa/run_camsa.py
 CAMSA_POINTS2FASTA=/home/umr8227/gv/dgoudenege/.local/lib/python3.9/site-packages/camsa/utils/fasta/camsa_points2fasta.py

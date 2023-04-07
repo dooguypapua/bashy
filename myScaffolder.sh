@@ -202,7 +202,8 @@ if [ -n $SLURM_JOB_ID ] && [ "$SLURM_JOB_ID" != "" ]
   then
   slurm_bool=true
   job_id="$SLURM_JOB_ID"
-  PYTHON="python3.9"
+  PYTHON1="python3.7"
+  PYTHON2="python3.9"
   src_path=$(scontrol show job $SLURM_JOBID | awk -F= '/Command=/{print $2}' | cut -d " " -f 1)
   source "`dirname \"$src_path\"`"/functions.sh
   source "`dirname \"$src_path\"`"/spinny.sh
@@ -211,7 +212,8 @@ else
   path_tmp="/tmp"
   threads=0
   memory=0
-  PYTHON=$(which python)
+  PYTHON1=$(which python)
+  PYTHON2=$(which python)
   FASTA2CAMSA=$(which fasta2camsa_points.py)
   RUN_CAMSA=$(which run_camsa.py)
   CAMSA_POINTS2FASTA=$(which camsa_points2fasta.py)
@@ -446,18 +448,19 @@ for strain in "${array_strain[@]}"
   if [[ -s "${path_prev_json}" ]]
   then
       # Get previous parameters
-      prev_qcov=$(${JQ} -r ".\"${strain}\""."qcov" ${path_prev_json})
-      if [ $qcov != $prev_qcov ]; then bool_change_qcov=true ; fi
-      prev_kmer=$(${JQ} -r ".\"${strain}\""."kmer" ${path_prev_json})
-      if [ $kmer != $prev_kmer ]; then bool_change_kmer=true ; fi
-      prev_contigs=$(${JQ} -r ".\"${strain}\""."contigs" ${path_prev_json})
-      if [ $path_ctg != $prev_contigs ]; then bool_change_contigs=true ; fi
-      prev_path_r1=$(${JQ} -r ".\"${strain}\""."path_r1" ${path_prev_json})
-      prev_path_r2=$(${JQ} -r ".\"${strain}\""."path_r2" ${path_prev_json})
-      if [ $path_r1 != $prev_path_r1 ] || [ $path_r2 != $prev_path_r2 ]; then bool_change_path_reads=true ; fi
-      declare -a prev_array_strain_ref="($(${JQ} -r ".\"${strain}\""."ref" ${path_prev_json} | tr -d '[]," '))"
-      nb_array_diff=$(echo ${array_strain_ref[@]} ${prev_array_strain_ref[@]} | tr ' ' '\n' | sort | uniq -u | wc -l)
-      if [ $nb_array_diff -gt 0 ]; then bool_change_array_strain_ref=true ; fi
+      prev_qcov=$(${JQ} -r ".\"${strain}\""."qcov" ${path_prev_json} 2>/dev/null) 
+      if [ ! $? -eq 0 ] || [ $qcov != $prev_qcov ]; then bool_change_qcov=true ; fi
+      prev_kmer=$(${JQ} -r ".\"${strain}\""."kmer" ${path_prev_json} 2>/dev/null)
+      if [ ! $? -eq 0 ] || [ $kmer != $prev_kmer ]; then bool_change_kmer=true ; fi
+      prev_contigs=$(${JQ} -r ".\"${strain}\""."contigs" ${path_prev_json} 2>/dev/null)
+      if [ ! $? -eq 0 ] || [ $path_ctg != $prev_contigs ]; then bool_change_contigs=true ; fi
+      prev_path_r1=$(${JQ} -r ".\"${strain}\""."path_r1" ${path_prev_json} 2>/dev/null)
+      if [ ! $? -eq 0 ] || [ $path_r1 != $prev_path_r1 ] ; then bool_change_path_reads=true ; fi
+      prev_path_r2=$(${JQ} -r ".\"${strain}\""."path_r2" ${path_prev_json} 2>/dev/null)
+      if [ ! $? -eq 0 ] || [ $path_r2 != $prev_path_r2 ]; then bool_change_path_reads=true ; fi
+      declare -a prev_array_strain_ref="($(${JQ} -r ".\"${strain}\""."ref" ${path_prev_json} 2>/dev/null | tr -d '[]," '))"
+      nb_array_diff=$(echo ${array_strain_ref[@]} ${prev_array_strain_ref[@]} | tr ' ' '\n' | sort | uniq -u | wc -l 2>/dev/null)
+      if [ ! $? -eq 0 ] || [ $nb_array_diff -gt 0 ]; then bool_change_array_strain_ref=true ; fi
       # Display parameters modification
       if [[ $bool_change_qcov == true || $bool_change_kmer == true || $bool_change_contigs == true || $bool_change_path_reads == true || $bool_change_array_strain_ref == true ]]
         then
@@ -472,7 +475,7 @@ for strain in "${array_strain[@]}"
       fi
   fi
   # Update strain parameters JSON
-  echo -e "{\n  \"${strain}\":\n$(jq -r ."${strain}" ${path_init_json} | sed s/"^"/"  "/)\n}" > ${path_prev_json}
+  new_entry=$(${JQ} -r ".\"${strain}\"" ${path_init_json} | sed s/"^"/"  "/)
 
   #***** FASTQ INPUT *****#
   if [[ "$path_r1" != "." ]]
@@ -626,8 +629,8 @@ for strain in "${array_strain[@]}"
       spinny::start
       for replicon in ${path_dir_ref}/*.fasta
         do replicon_name=$(basename ${replicon} | sed s/".fasta"/""/)
-        last_cmd=$(echo "${RAGTAG} scaffold -o ${path_tmp}/ragtag_${ref_name}_${replicon_name} ${replicon} ${path_outdir_assign}/${ref_name}_${replicon_name}.fasta" | tee -a ${path_log})
-        ${RAGTAG} scaffold -o ${path_tmp}/ragtag_${ref_name}_${replicon_name} ${replicon} ${path_outdir_assign}/${ref_name}_${replicon_name}.fasta >> ${path_log} 2>&1 || display_error "ragtag for '${strain}' and replicon '${replicon_name}'" true "ragtag"
+        last_cmd=$(echo "${PYTHON1} ${RAGTAG} scaffold -o ${path_tmp}/ragtag_${ref_name}_${replicon_name} ${replicon} ${path_outdir_assign}/${ref_name}_${replicon_name}.fasta" | tee -a ${path_log})
+        ${PYTHON1} ${RAGTAG} scaffold -o ${path_tmp}/ragtag_${ref_name}_${replicon_name} ${replicon} ${path_outdir_assign}/${ref_name}_${replicon_name}.fasta >> ${path_log} 2>&1 || display_error "ragtag for '${strain}' and replicon '${replicon_name}'" true "ragtag"
         # WARNING: output file change between ragtag version
         if [ -f "${path_tmp}/ragtag_${ref_name}_${replicon_name}/ragtag.scaffold.fasta" ]
           then cp ${path_tmp}/ragtag_${ref_name}_${replicon_name}/ragtag.scaffold.fasta ${path_outdir_ragtag}/${ref_name}_${replicon_name}.fasta
@@ -721,12 +724,12 @@ for strain in "${array_strain[@]}"
         do
         target_name=$(basename ${array_strain_ref[$i]} | sed s/".fasta"/""/)
         path_contigs_scaffolds_ref=${path_outdir_scaffold}/${target_name}_contigs_scaffolds.fasta
-        last_cmd=$(echo "python ${FASTA2CAMSA} ${path_contigs_scaffolds_ref} ${path_contigs_scaffolds_ref} -o scaffolds_points" | tee -a ${path_log})
-        ${PYTHON} ${FASTA2CAMSA} ${path_contigs_scaffolds_ref} ${path_contigs_scaffolds_ref} -o scaffolds_points 2>>${path_log} || display_error "merging for '${strain}'" true "merging"
-        last_cmd=$(echo "python ${RUN_CAMSA} scaffolds_points/${target_name}_contigs_scaffolds.camsa.points -o ." | tee -a ${path_log})
-        ${PYTHON} ${RUN_CAMSA} scaffolds_points/${target_name}"_contigs_scaffolds.camsa.points" -o . 2>>${path_log} || display_error "merging for '${strain}'" true "merging"
-        last_cmd=$(echo "python ${CAMSA_POINTS2FASTA} --allow-singletons --points merged/merged.camsa.points --fasta ${path_contigs_scaffolds_ref} -o ${path_tmp_merged_camsa}" | tee -a ${path_log})
-        ${PYTHON} ${CAMSA_POINTS2FASTA} --allow-singletons --points merged/merged.camsa.points --fasta ${path_contigs_scaffolds_ref} -o ${path_tmp_merged_camsa} 2>>${path_log} || display_error "merging for '${strain}'" true "merging"
+        last_cmd=$(echo "${PYTHON2} ${FASTA2CAMSA} ${path_contigs_scaffolds_ref} ${path_contigs_scaffolds_ref} -o scaffolds_points" | tee -a ${path_log})
+        ${PYTHON2} ${FASTA2CAMSA} ${path_contigs_scaffolds_ref} ${path_contigs_scaffolds_ref} -o scaffolds_points 2>>${path_log} || display_error "merging for '${strain}'" true "merging"
+        last_cmd=$(echo "${PYTHON2} ${RUN_CAMSA} scaffolds_points/${target_name}_contigs_scaffolds.camsa.points -o ." | tee -a ${path_log})
+        ${PYTHON2} ${RUN_CAMSA} scaffolds_points/${target_name}"_contigs_scaffolds.camsa.points" -o . 2>>${path_log} || display_error "merging for '${strain}'" true "merging"
+        last_cmd=$(echo "${PYTHON2} ${CAMSA_POINTS2FASTA} --allow-singletons --points merged/merged.camsa.points --fasta ${path_contigs_scaffolds_ref} -o ${path_tmp_merged_camsa}" | tee -a ${path_log})
+        ${PYTHON2} ${CAMSA_POINTS2FASTA} --allow-singletons --points merged/merged.camsa.points --fasta ${path_contigs_scaffolds_ref} -o ${path_tmp_merged_camsa} 2>>${path_log} || display_error "merging for '${strain}'" true "merging"
         path_tmp_merged_camsa=${path_contigs_scaffolds_ref}
       done
       awk 'BEGIN {RS=">";FS="\n"} NR>1 {seq=""; for (i=2;i<=NF;i++) seq=seq$i; print ">"$1"\n"seq}' ${path_tmp_merged_camsa} > ${path_final_out}
