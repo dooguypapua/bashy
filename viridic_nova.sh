@@ -278,7 +278,8 @@ for line in lstLines[1:]:
         splitLine = line.split("\t")
         dicoDist[splitLine[0]] = {}
         for i in range(1,len(splitLine),1):
-            dicoDist[splitLine[0]][lstColName[i]] = float(splitLine[i])
+            try: dicoDist[splitLine[0]][lstColName[i]] = float(splitLine[i])
+            except: dicoDist[splitLine[0]][lstColName[i]] = 0.0
 
 dicoTaxo = {'family': {}, 'genus': {}, 'specie': {}}
 for orgName1 in dicoDist:
@@ -548,6 +549,8 @@ if [[ ! ${nb_missing_comp} -eq 0 ]]; then
     echo -e "${blastn} -query ${path_fasta_reformat1} -subject ${path_fasta_reformat2} -out ${dir_tmp}/${job_name}_blast.asn -outfmt \"11\" ${blast_param}" > ${bash_process}
     echo -e "${blast_formatter} -archive ${dir_tmp}/${job_name}_blast.asn -outfmt \"${outfmt}\" -out ${dir_tmp}/${job_name}_blast.out " >> ${bash_process}
     echo -e "${blast_formatter} -archive ${dir_tmp}/${job_name}_blast.asn -outfmt \"${outfmt_reverse}\" | awk '{OFS=\"\\\\t\"; if(\$7>\$8) {t=\$7; \$7=\$8; \$8=t ; t=\$9; \$9=\$10; \$10=t} print}' > ${dir_tmp}/${job_name}_blastr.out" >> ${bash_process}
+    echo -e "echo \"\" >> ${dir_tmp}/${job_name}_blast.out" >> ${bash_process}
+    echo -e "echo \"\" >> ${dir_tmp}/${job_name}_blastr.out" >> ${bash_process}
     echo -e "cat ${dir_tmp}/${job_name}_blast.out >> ${path_missing_blast1}" >> ${bash_process}
     echo -e "cat ${dir_tmp}/${job_name}_blastr.out >> ${path_missing_blast2}" >> ${bash_process}
     echo -e "cat ${dir_tmp}/${job_name}_blast.out >> ${path_final_blast1}" >> ${bash_process}
@@ -579,7 +582,7 @@ if [[ ! ${nb_missing_comp} -eq 0 ]]; then
     # ${rscript} ${path_viridic_modif} blastres=${blast_out} out=${path_missing_viridic} 2>&1 >>${log} &
     ${rscript} --vanilla --verbose ${path_viridic_modif} blastres=${blast_out} out=${path_missing_viridic} 2>>${log} &
     arrayPid+=($!)
-    pwait ${threads} ; parallel_progress "viridic" "${nb_blast_file}"
+    pwait $((${threads}/2)) ; parallel_progress "viridic" "${nb_blast_file}"
   done
   # Final wait & progress
   while [ $(jobs -p | wc -l) -gt 1 ]; do parallel_progress "viridic" "${nb_blast_file}" ; sleep 1 ; done
