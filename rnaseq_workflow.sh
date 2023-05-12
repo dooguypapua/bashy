@@ -36,7 +36,7 @@ function display_error {
 
 function usage {
     echo -e "╭───────────────────────────────────────────────────────────────────╮"
-    echo -e "|"${colortitlel}$' USAGE: rnaseq_workflow.sh -r REF,REF -o DIR (-t INT -w DIR)'${NC}"       |"
+    echo -e "|"${colortitlel}$' USAGE: rnaseq_workflow.sh -r FASTA,GFF -o DIR (-t INT -w DIR)'${NC}"     |"
     echo "|                                                                   |"
     echo -e "|"${colortitlel}$' Required options:'${NC}"                                                 |"
     echo "|"$'  -i Input FASTQ folder'"                                            |"
@@ -159,7 +159,7 @@ declare -A ref_fasta_map
 declare -A ref_gff_map
 declare -A ref_title_map
 tmp_folder="/tmp"
-htseqcount_args="--mode=union --stranded=reverse --order=name --type=gene --minaqual=10 --idattr=locus_tag"
+htseqcount_args="--mode=union --stranded=reverse --order=name --type=gene --minaqual=10 --idattr=locus_tag --quiet"
 start_time=$SECONDS
 # Tools paths
 bowtie="bowtie2"
@@ -357,7 +357,7 @@ for fastq_name in "${!fastq_map[@]}"; do
         path_count=${path_dir_out}/${fastq_name}_${ref_name}_count.tsv      
         # Mapping
         if [[ ! -s ${path_bam} ]] && [[ ! -s ${path_count} ]] ; then
-            ${bowtie} --threads ${threads} -x ${ref_idx_path} -U ${path_trim} | ${samtools} view -@${threads} -bS -  | ${samtools} sort -@${threads} - ${path_bam} 2>>${log}
+            ${bowtie} --quiet --threads ${threads} -x ${ref_idx_path} -U ${path_trim} | ${samtools} view -@${threads} -bS -  | ${samtools} sort -@${threads} -o ${path_bam} - 2>>${log}
             ${samtools} index -@${threads} ${path_bam}
             ((cpt_compute++))
         fi
@@ -381,7 +381,7 @@ for fastq_name in "${!fastq_map[@]}"; do
         # htseq-count
         if [[ ! -s ${path_count} ]]; then
             if [ "$slurm_bool" = true ]; then module unload bowtie2 ; fi
-            ${htseqcount} ${htseqcount_args} ${path_bam} ${path_ref_gff} > ${path_count}
+            ${htseqcount} ${htseqcount_args} ${path_bam} ${path_ref_gff} > ${path_count} 2>>${log} &
             arrayPid+=($!)
             pwait ${threads} ; parallel_progress "htseq-count" "${nb_fastq_ref}"
         fi
@@ -389,7 +389,7 @@ for fastq_name in "${!fastq_map[@]}"; do
 done
 # Final wait & progress
 while [ $(jobs -p | wc -l) -gt 1 ]; do parallel_progress "htseq-count" "${nb_fastq_ref}" ; sleep 1 ; done
-echo -ne '\e[1A\e[K'
+echo -ne '\e[2A\e[K\n'
 echo -ne "| ${colortitle}Count       :${NC} done" ; rjust 19 true
 # End processing
 echo -e "╰───────────────────────────────────────────────────────────────────╯"

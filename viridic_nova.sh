@@ -39,7 +39,7 @@ function usage {
     echo -e "|"${colortitlel}$' USAGE: viridic_nova.sh -i DIR -o DIR (-t INT -w DIR)'${NC}"                |"
     echo "|                                                                     |"
     echo -e "|"${colortitlel}$' Required options:'${NC}"                                                   |"
-    echo "|"$'  -i Input FASTQ folder'"                                              |"
+    echo "|"$'  -i Input FASTA folder'"                                              |"
     echo "|"$'  -o Output results folder'"                                           |"
     echo "|                                                                     |"
     echo -e "|"${colortitlel}$' Optional options:'${NC}"                                                   |"
@@ -51,7 +51,19 @@ function usage {
     echo "|"$'     Default       : 0 (all)'"                                         |"
     echo "|"$'  -w Temporary folder'"                                                |"
     echo "|"$'     Default       : /tmp'"                                            |"
-    echo "|                                                                     |"  
+    echo "|                                                                     |"
+    echo -e "|"${colortitlel}$' CMAP options:'${NC}"                                                       |"
+    echo "|"$'  -1 Hexadecimal color for 0%'"                                        |"
+    echo "|"$'     Default       : fffde4'"                                          |"
+    echo "|"$'  -2 Hexadecimal color for 50%'"                                       |"
+    echo "|"$'     Default       : None'"                                            |"
+    echo "|"$'  -3 Hexadecimal color for 100%'"                                      |"
+    echo "|"$'     Default       : 005AA7'"                                          |"
+    echo "|"$'  (basicBlue   -1 fffde4 -2 005AA7) [default]'"                        |"
+    echo "|"$'  (basicRed    -1 fffbd5 -2 b20a2c)'"                                  |"
+    echo "|"$'  (tealTempest -1 78ffd6 -2 007991)'"                                  |"
+    echo "|"$'  (oceanBlaze  -1 0ABFBC -2 FC354C)'"                                  |"
+    echo "|                                                                     |"
     echo -e "|"${colortitlel}$' Tool locations: '${NC}"                                                    |"
     echo "|"$' Specify following tool location if not in ${PATH}'"                   |"
     echo "|"$'  --seqkit  '"                                                         |"
@@ -94,7 +106,7 @@ function parallel_progress() {
   arrayPid=("${new_arrayPid[@]}")   
   percent_done=$(( ${cpt_done}*100/${total} ))
   progress $percent_done
-  title "viridic | ${title_str} (${percent_done}%%)"
+  if [ "$(type -t title)" = "function" ]; then title "viridic | ${title_str} (${percent_done}%%)" ;fi
 }
 
 function pwait() {
@@ -225,6 +237,7 @@ blastn_DF_g <- blastn_DF %>%
   group_by(qseqid, sseqid, qlen, slen) %>%
   nest()
 rm(blastn_DF)
+# adjust workers to half main thread
 plan(multisession)
 options(future.globals.maxSize = 1073741824)
 outp_ls <- future_map2(.x = blastn_DF_g$data, .y = blastn_DF_g$qlen, .f = nident_fun)
@@ -235,7 +248,7 @@ blastn_DF_g[, "q_aligned"] <- lapply(outp_ls, "[[", 2) %>%
 blastn_DF_g <- blastn_DF_g %>%
   mutate(q_fract_aligned = round(q_aligned/qlen, digits = 2))
 rm(outp_ls)
-options(future.globals.maxSize = 1073741824)
+#options(future.globals.maxSize = 1073741824)
 ret_ls <- future_map2(.x = blastn_DF_g$qseqid, .y = blastn_DF_g$sseqid, .f = s_nident_fun, DF = blastn_DF_g)
 blastn_DF_g[, "s_nident"] <- lapply(ret_ls, "[", 1) %>%
   unlist
@@ -258,16 +271,27 @@ blastn_DF_g <- blastn_DF_g %>%
 write.table(x = blastn_DF_g, file = paste0(input[2]), sep = "\t", row.names = FALSE, col.names = TRUE)
 EOF
 )
-  echo "${VIRIDIC_SCRIPT}" > ${1}
+  R_thread=${2}
+  echo "${VIRIDIC_SCRIPT}" | sed s/"plan(multisession)"/"plan(multisession, workers = $((R_thread/2)))"/ > ${1}
 }
 
 function make_python_script {
   path_script=${1}
   path_dir_out=${2}
+  cmap_min=${3}
+  cmap_med=${4}
+  cmap_max=${5}
   PYTHON_SCRIPT=$(cat <<EOF
+import pandas as pd
+import seaborn as sns
+import numpy as np
+import matplotlib.pyplot as plt
 pathIN="${path_dir_out}/viridic_matrix.tsv"
 pathOUTphage="${path_dir_out}/viridic_per_phage.tsv"
 pathOUTrank="${path_dir_out}/viridic_per_rank.tsv"
+pathOUTcluster="${path_dir_out}/viridic_clustered_matrix.tsv"
+pathOUTpng="${path_dir_out}/viridic_clustered_matrix.png"
+pathOUTsvg="${path_dir_out}/viridic_clustered_matrix.svg"
 IN = open(pathIN,'r')
 lstLines = IN.read().split("\n")
 IN.close()
@@ -308,6 +332,38 @@ for level in dicoTaxo:
         for phageName in dicoTaxo[level][group]:
             OUTphage.write(phageName+"\t"+level+"\t"+str(group)+"\n")
 OUTphage.close()
+# Clustering matrix and plots
+df = pd.DataFrame(dicoDist)
+# CMAP colors
+if cmap_min[0] != "#": cmap_min = "#"+cmap_min
+if cmap_med[0] != "#": cmap_med = "#"+cmap_med
+if cmap_max[0] != "#": cmap_max = "#"+cmap_max
+if cmap_med == "None": cmap = colors.LinearSegmentedColormap.from_list('my_cmap', [cmap_min, cmap_max])
+else: cmap = colors.LinearSegmentedColormap.from_list('my_cmap', [cmap_min, cmap_med, cmap_max])
+cg = sns.clustermap(df, cmap=cmap, method="complete", metric='euclidean', figsize=(50, 50), tree_kws={'linewidths': 2.5}, dendrogram_ratio=0.15, annot_kws={"size": 35 / np.sqrt(len(df))}, vmin=0, xticklabels=df.columns.values, yticklabels=df.index.values, linewidths=0.0, rasterized=True)
+# Retrieve ordered ticks label
+newColums = df.columns[cg.dendrogram_col.reordered_ind]
+newIndexs = df.index[cg.dendrogram_row.reordered_ind]
+newData = df.loc[newIndexs, newColums]
+orderedOrg = list(newData.keys())
+# Plot clustered heatmap
+cg.ax_cbar.tick_params(labelsize=40)
+cg.ax_cbar.yaxis.label.set_size(50)
+font_size = int(100 / np.sqrt(len(df)))
+cg.ax_heatmap.tick_params(labelsize=font_size)
+plt.savefig(pathOUTpng, dpi=300)
+plt.savefig(pathOUTsvg)
+OUT = open(pathOUTcluster, 'w')
+header = "Organism"
+for orgName in orderedOrg:
+    header += "\t"+orgName
+OUT.write(header+"\n")
+for orgName1 in orderedOrg:
+    line = orgName1
+    for orgName2 in orderedOrg:
+        line += "\t"+str(dicoDist[orgName1][orgName2]).replace(".", ",")
+    OUT.write(line+"\n")
+OUT.close()
 EOF
 )
   echo "${PYTHON_SCRIPT}" > ${path_script}
@@ -323,14 +379,14 @@ if [ -n $SLURM_JOB_ID ] && [ "$SLURM_JOB_ID" != "" ]
   slurm_bool=true
   job_id="$SLURM_JOB_ID"
   src_path=$(scontrol show job $SLURM_JOBID | awk -F= '/Command=/{print $2}' | cut -d " " -f 1)
-  source "`dirname \"$src_path\"`"/bashy/functions.sh
-  source "`dirname \"$src_path\"`"/bashy/spinny.sh
+  if [[ -f "`dirname \"$src_path\"`"/bashy/functions.sh ]]; then source "`dirname \"$src_path\"`"/bashy/functions.sh ; fi
+  if [[ -f "`dirname \"$src_path\"`"/bashy/spinny.sh ]]; then source "`dirname \"$src_path\"`"/bashy/spinny.sh ; fi
 else
   threads=0
-  source "`dirname \"$0\"`"/functions.sh
-  source "`dirname \"$0\"`"/spinny.sh
+  if [[ -f "`dirname \"$0\"`"/functions.sh ]]; then source "`dirname \"$0\"`"/functions.sh ; fi
+  if [[ -f "`dirname \"$0\"`"/spinny.sh ]]; then source "`dirname \"$0\"`"/spinny.sh ; fi
 fi
-title "viridic workflow"
+if [ "$(type -t title)" = "function" ]; then title "viridic workflow" ; fi
 # ***** INITIALIZATION ***** #
 # Variables
 maxdepth=1
@@ -342,8 +398,12 @@ n_strech=$(printf "N%.0s" $(seq 1 $n_strech_len))
 outfmt='6 qseqid sseqid evalue bitscore qlen slen qstart qend sstart send qseq sseq nident gaps'
 outfmt_reverse='6 sseqid qseqid evalue bitscore slen qlen sstart send qstart qend sseq qseq nident gaps'
 blast_param='-evalue 1 -max_target_seqs 50000 -word_size 7 -reward 2 -penalty -3 -gapopen 5 -gapextend 2'
-# VIRIDIC
+cmap_min="#fffde4"
+cmap_med="None"
+cmap_max="#005AA7"
+# R and python packages
 r_packages=("magrittr" "dplyr" "tibble" "purrr" "seqinr" "stringr" "tidyr" "IRanges" "reshape2" "pheatmap" "ggplot2" "fastcluster" "parallelDist" "furrr" "future")
+py_packages=("pandas" "seaborn" "numpy" "matplotlib")
 # viridic="viridic"
 seqkit=$(which seqkit)
 blastn=$(which blastn)
@@ -374,7 +434,7 @@ for arg in "$@"; do
 done
 # list of arguments expected in the input
 ref_fasta_list=""
-optstring=":i:o:f:d:v:t:s:b:c:e:g:w:h"
+optstring=":i:o:f:d:v:t:s:b:c:e:g:1:2:3:w:h"
 while getopts ${optstring} arg; do
   case ${arg} in
     h) usage ; exit 0 ;;
@@ -389,12 +449,13 @@ while getopts ${optstring} arg; do
     c) blast_formatter="${OPTARG}" ;;
     e) rscript="${OPTARG}" ;;
     g) datamash="${OPTARG}" ;;
+    1) cmap_min="${OPTARG}" ;;
+    2) cmap_med="${OPTARG}" ;;
+    3) cmap_max="${OPTARG}" ;;
     :) usage ; display_error "Must supply an argument to -$OPTARG." false ; exit 1 ;;
     ?) usage ; display_error "Invalid option: -${OPTARG}." false ; exit 2 ;;
   esac
 done
-
-
 # Check missing required arguments
 if [[ -z "${path_dir_in}" ]]; then usage ; display_error "Input FASTA folder is required (-i)" false ; fi
 if [[ ! -d "${path_dir_in}" ]]; then usage ; display_error "Input FASTA folder not found (-i)" false ; fi
@@ -403,6 +464,13 @@ if [[ -z "${path_dir_out}" ]]; then usage ; display_error "Output results folder
 if [[ ! -z "${maxdepth}" && ! "${maxdepth}" =~ ^[0-9,]+$ ]]; then usage ; display_error "Find FASTA maxdepth is invalid (must be integer)" false ; fi
 if [[ ! -z "${threads}" && ! "${threads}" =~ ^[0-9,]+$ ]]; then usage ; display_error "Number of threads is invalid (must be integer)" false ; fi
 if [ $threads == 0 ]; then threads=$(grep -c ^processor /proc/cpuinfo) ; fi
+# Check cmap colors
+if [[ ! $cmap_min =~ ^#?([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$ ]]; then usage ; display_error "CMAP hexadecimal color for 0% is invalid (must be hexa)" false ; fi
+if [[ "$cmap_med" != "None" && ! $cmap_med =~ ^#?([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$ ]]; then usage ; display_error "CMAP hexadecimal color for 50% is invalid (must be hexa)" false ; fi
+if [[ ! $cmap_max =~ ^#?([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$ ]]; then usage ; display_error "CMAP hexadecimal color for 100% is invalid (must be hexa)" false ; fi
+# Check free memory
+total_mem=$(free -g | awk '/Mem/ {print $7}')
+max_memory=$((total_mem*75/100))
 # Check tools
 if ! command -v ${blastn} &> /dev/null; then display_error "blastn not found (use \$PATH or specify it)" false ; fi
 blastn_version=$(${blastn} -version | grep -oP 'blastn: \K\d+\.\d+\.\d+')
@@ -429,8 +497,7 @@ mkdir -p ${dir_tmp} ${dir_tmp}/blastn ${dir_tmp}/viridic 2>/dev/null
 if [[ ! $? -eq 0 ]] ; then usage && display_error "Cannot create temp directory" false ; fi
 # Create VIRIDIC script
 path_viridic_modif="${dir_tmp}/viridic.R"
-make_viridic_script ${path_viridic_modif}
-
+make_viridic_script ${path_viridic_modif} $((threads/3))
 
 
 # ************************************************************************* #
@@ -471,6 +538,14 @@ for package in "${r_packages[@]}"; do
   if ! Rscript -e "if(!require('${package}', quietly = TRUE)) stop()" 2>/dev/null ; then display_error "Required R package \"${package}\" not found" false ; fi
 done
 spinny::stop
+
+# Check python packages
+SPINNY_FRAMES=( "| Check python packages                                               |" "| Check python packages  .                                            |" "| Check python packages  ..                                           |" "| Check python packages  ...                                          |" "| Check python packages  ....                                         |" "| Check python packages  .....                                        |")
+spinny::start
+for package in "${py_packages[@]}"; do
+  python -c "import ${package}" 2>/dev/null || display_error "Required python package \"${package}\" not found" false
+done
+spinny::stop
 echo -e "╰─────────────────────────────────────────────────────────────────────╯"
 
 
@@ -507,10 +582,11 @@ sort ${path_dir_out}/history.txt | diff --speed-large-files ${dir_tmp}/results_e
 cat ${dir_tmp}/results_missing.txt | awk '{if ($1 < $2) print $0; else if ($1 > $2) print $2"\t"$1}' | sort -u > ${dir_tmp}/results_missing_reduce.txt
 nb_missing_comp=$(wc -l <${dir_tmp}/results_missing_reduce.txt)
 spinny::stop
+echo -ne '\r\e[K'
 if [[ ${nb_missing_comp} -eq 0 ]]; then
-  echo -ne " ${nb_expected_comp} [up-to-date]" ; rjust $((${#nb_expected_comp}+30)) true
+  echo -ne "| ${colortitle}Check history :${NC} ${nb_expected_comp} [up-to-date]" ; rjust $((${#nb_expected_comp}+30)) true
 else
-  echo -ne " ${nb_missing_comp}/${nb_expected_comp} missing" ; rjust $((${#nb_expected_comp}+${#nb_missing_comp}+26)) true
+  echo -ne "| ${colortitle}Check history :${NC} ${nb_missing_comp}/${nb_expected_comp} missing" ; rjust $((${#nb_expected_comp}+${#nb_missing_comp}+26)) true
 fi
 
 # ***** LAUNCH missing blastn comparisons ***** #
@@ -551,11 +627,22 @@ if [[ ! ${nb_missing_comp} -eq 0 ]]; then
     echo -e "${blast_formatter} -archive ${dir_tmp}/${job_name}_blast.asn -outfmt \"${outfmt_reverse}\" | awk '{OFS=\"\\\\t\"; if(\$7>\$8) {t=\$7; \$7=\$8; \$8=t ; t=\$9; \$9=\$10; \$10=t} print}' > ${dir_tmp}/${job_name}_blastr.out" >> ${bash_process}
     echo -e "echo \"\" >> ${dir_tmp}/${job_name}_blast.out" >> ${bash_process}
     echo -e "echo \"\" >> ${dir_tmp}/${job_name}_blastr.out" >> ${bash_process}
-    echo -e "cat ${dir_tmp}/${job_name}_blast.out >> ${path_missing_blast1}" >> ${bash_process}
-    echo -e "cat ${dir_tmp}/${job_name}_blastr.out >> ${path_missing_blast2}" >> ${bash_process}
-    echo -e "cat ${dir_tmp}/${job_name}_blast.out >> ${path_final_blast1}" >> ${bash_process}
-    echo -e "cat ${dir_tmp}/${job_name}_blastr.out >> ${path_final_blast2}" >> ${bash_process}
-    echo -e "rm -f ${dir_tmp}/${job_name}_blast*" >> ${bash_process}
+    (
+      flock -x 9
+      echo -e "cat ${dir_tmp}/${job_name}_blast.out >> ${path_missing_blast1}"
+    ) 9>${path_missing_blast1}.lock >> ${bash_process}
+    (
+      flock -x 9
+      echo -e "cat ${dir_tmp}/${job_name}_blastr.out >> ${path_missing_blast2}"
+    ) 9>${path_missing_blast2}.lock >> ${bash_process}
+    (
+      flock -x 9
+      echo -e "cat ${dir_tmp}/${job_name}_blast.out >> ${path_final_blast1}"
+    ) 9>${path_final_blast1}.lock >> ${bash_process}
+    (
+      flock -x 9
+      echo -e "cat ${dir_tmp}/${job_name}_blastr.out >> ${path_final_blast2}"
+    ) 9>${path_final_blast2}.lock >> ${bash_process}
     # Launch process
     bash ${bash_process} 2>>${log} &
     arrayPid+=($!)
@@ -563,7 +650,7 @@ if [[ ! ${nb_missing_comp} -eq 0 ]]; then
   done < ${dir_tmp}/results_missing_reduce.txt
   # Final wait & progress
   while [ $(jobs -p | wc -l) -gt 1 ]; do parallel_progress "blastn" "${nb_missing_comp}" ; sleep 1 ; done
-  rm -f "${dir_tmp}/*_blast.sh"
+  rm -f "${dir_tmp}/*_blast.sh" "${dir_tmp}/blastn/*.lock" "${path_dir_out}/blastn/*.lock"
   echo -ne '\e[1A\e[K'
   echo -e '\e[1A\e[K'
   echo -ne "| ${colortitle}Launch BlastN :${NC} done" ; rjust 21 true
@@ -576,13 +663,15 @@ if [[ ! ${nb_missing_comp} -eq 0 ]]; then
   arrayPid=()
   cpt_done=0
   for blast_out in ${dir_tmp}/blastn/*; do
+    # Remove empty line in blastn files
+    sed -i '/^$/d' ${blast_out}
     path_missing_viridic=${dir_tmp}/viridic/$(basename ${blast_out})
     path_final_viridic=${path_dir_out}/viridic/$(basename ${blast_out})
     # Launch viridic
     # ${rscript} ${path_viridic_modif} blastres=${blast_out} out=${path_missing_viridic} 2>&1 >>${log} &
     ${rscript} --vanilla --verbose ${path_viridic_modif} blastres=${blast_out} out=${path_missing_viridic} 2>>${log} &
     arrayPid+=($!)
-    pwait $((${threads}/2)) ; parallel_progress "viridic" "${nb_blast_file}"
+    pwait ${threads} ; parallel_progress "viridic" "${nb_blast_file}"
   done
   # Final wait & progress
   while [ $(jobs -p | wc -l) -gt 1 ]; do parallel_progress "viridic" "${nb_blast_file}" ; sleep 1 ; done
@@ -595,6 +684,7 @@ fi
 # if not use reciprocal blast, viridic must be sum of both comparison
 if [[ ! ${nb_missing_comp} -eq 0 ]]; then
   echo -ne "| ${colortitle}Format VIRIDIC:${NC}"
+  if [ "$(type -t title)" = "function" ]; then title "viridic | reformat" ; fi
   SPINNY_FRAMES=( " reformat                                            |" " reformat .                                          |" " reformat ..                                         |" " reformat ...                                        |" " reformat ....                                       |" " reformat .....                                      |")
   spinny::start
   for viridic_out in ${dir_tmp}/viridic/*; do
@@ -610,6 +700,7 @@ fi
 # ***** UPDATE missing in history ***** #
 if [[ ! ${nb_missing_comp} -eq 0 ]]; then
   echo -ne "| ${colortitle}Update history:${NC}"
+  if [ "$(type -t title)" = "function" ]; then title "viridic | update" ; fi
   SPINNY_FRAMES=( " updating                                            |" " updating .                                          |" " updating ..                                         |" " updating ...                                        |" " updating ....                                       |" " updating .....                                      |")
   spinny::start
   cat ${dir_tmp}/results_missing.txt >> ${path_dir_out}/history.txt
@@ -621,6 +712,7 @@ fi
 
 # ***** Create distance matrix ***** #
 echo -ne "| ${colortitle}Create matrix :${NC}"
+if [ "$(type -t title)" = "function" ]; then title "viridic | matrix" ; fi
 SPINNY_FRAMES=( " computing                                           |" " computing .                                         |" " computing ..                                        |" " computing ...                                       |" " computing ....                                      |" " computing .....                                     |")
 spinny::start
 for file in ${path_dir_out}/viridic/*.out; do
@@ -635,9 +727,10 @@ echo -ne " done" ; rjust 21 true
 
 # ***** Create distance matrix ***** #
 echo -ne "| ${colortitle}Assignment    :${NC}"
+if [ "$(type -t title)" = "function" ]; then title "viridic | assign" ; fi
 SPINNY_FRAMES=( " taxonomic assignment                                |" " taxonomic assignment .                              |" " taxonomic assignment ..                             |" " taxonomic assignment ...                            |" " taxonomic assignment ....                           |" " taxonomic assignment .....                          |")
 spinny::start
-make_python_script ${dir_tmp}/assign.py ${path_dir_out}
+make_python_script ${dir_tmp}/assign.py ${path_dir_out} ${cmap_min} ${cmap_med} ${cmap_max}
 python3 ${dir_tmp}/assign.py 2>>${log}
 spinny::stop
 nb_family=$(grep -cE "^family" ${path_dir_out}/viridic_per_rank.tsv)
@@ -647,4 +740,5 @@ summary_assign=" (families:${nb_family}, genus:${nb_genus}, specie:${nb_specie})
 echo -ne " done${summary_assign}" ; rjust $((21+${#summary_assign})) true
 
 # End processing
-echo -e "╰─────────────────────────────────────────────────────────────────────╯"    
+echo -e "╰─────────────────────────────────────────────────────────────────────╯"
+if [ "$(type -t title)" = "function" ]; then title "viridic | done" ; fi
