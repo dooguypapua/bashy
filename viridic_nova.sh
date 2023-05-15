@@ -1,4 +1,5 @@
 #!/bin/bash
+shopt -s nullglob
 
 # ************************************************************************* #
 # *****                           FUNCTIONS                           ***** #
@@ -59,10 +60,10 @@ function usage {
     echo "|"$'     Default       : None'"                                            |"
     echo "|"$'  -3 Hexadecimal color for 100%'"                                      |"
     echo "|"$'     Default       : 005AA7'"                                          |"
-    echo "|"$'  (basicBlue   -1 fffde4 -2 005AA7) [default]'"                        |"
-    echo "|"$'  (basicRed    -1 fffbd5 -2 b20a2c)'"                                  |"
-    echo "|"$'  (tealTempest -1 78ffd6 -2 007991)'"                                  |"
-    echo "|"$'  (oceanBlaze  -1 0ABFBC -2 FC354C)'"                                  |"
+    echo "|"$'  (basicBlue   -1 fffde4 -3 005AA7) [default]'"                        |"
+    echo "|"$'  (basicRed    -1 fffbd5 -3 b20a2c)'"                                  |"
+    echo "|"$'  (tealTempest -1 78ffd6 -3 007991)'"                                  |"
+    echo "|"$'  (oceanBlaze  -1 0ABFBC -3 FC354C)'"                                  |"
     echo "|                                                                     |"
     echo -e "|"${colortitlel}$' Tool locations: '${NC}"                                                    |"
     echo "|"$' Specify following tool location if not in ${PATH}'"                   |"
@@ -70,7 +71,6 @@ function usage {
     echo "|"$'  --blastn (>=2.11)'"                                                  |"
     echo "|"$'  --blast_formatter (>=2.11)'"                                         |"
     echo "|"$'  --Rscript (>=2.11)'"                                                 |"
-    echo "|"$'  --datamash'"                                                         |"
     echo "╰─────────────────────────────────────────────────────────────────────╯"
 }
 
@@ -275,23 +275,47 @@ EOF
   echo "${VIRIDIC_SCRIPT}" | sed s/"plan(multisession)"/"plan(multisession, workers = $((R_thread/2)))"/ > ${1}
 }
 
-function make_python_script {
-  path_script=${1}
-  path_dir_out=${2}
-  cmap_min=${3}
-  cmap_med=${4}
-  cmap_max=${5}
+function make_python_matrix_script {
+  PYTHON_SCRIPT=$(cat <<EOF
+IN = open("${2}", 'r')
+lstLines = IN.read().split("\n")
+IN.close()
+dicoMatrix = {}
+for line in lstLines[:-1]:
+    splitLine = line.split("\t")
+    try: dicoMatrix[splitLine[0]][splitLine[1]] = float(splitLine[2])
+    except KeyError: dicoMatrix[splitLine[0]] = {splitLine[0]: "100.0", splitLine[1]: float(splitLine[2])}
+    try: dicoMatrix[splitLine[1]][splitLine[0]] = float(splitLine[2])
+    except KeyError: dicoMatrix[splitLine[1]] = {splitLine[1]: "100.0", splitLine[0]: float(splitLine[2])}
+OUT = open("${3}", 'w')
+OUT.write("\t"+"\t".join(list(dicoMatrix.keys()))+"\n")
+for phage1 in dicoMatrix:
+    line = phage1
+    for phage2 in dicoMatrix:
+        line += "\t"+str(dicoMatrix[phage1][phage2])
+    OUT.write(line+"\n")
+OUT.close()
+EOF
+)
+  echo "${PYTHON_SCRIPT}" > ${1}
+}
+
+function make_python_assign_script {
   PYTHON_SCRIPT=$(cat <<EOF
 import pandas as pd
 import seaborn as sns
 import numpy as np
 import matplotlib.pyplot as plt
-pathIN="${path_dir_out}/viridic_matrix.tsv"
-pathOUTphage="${path_dir_out}/viridic_per_phage.tsv"
-pathOUTrank="${path_dir_out}/viridic_per_rank.tsv"
-pathOUTcluster="${path_dir_out}/viridic_clustered_matrix.tsv"
-pathOUTpng="${path_dir_out}/viridic_clustered_matrix.png"
-pathOUTsvg="${path_dir_out}/viridic_clustered_matrix.svg"
+import matplotlib.colors as colors
+pathIN="${2}/viridic_matrix.tsv"
+pathOUTphage="${2}/viridic_per_phage.tsv"
+pathOUTrank="${2}/viridic_per_rank.tsv"
+pathOUTcluster="${2}/viridic_clustered_matrix.tsv"
+pathOUTpng="${2}/viridic_clustered_matrix.png"
+pathOUTsvg="${2}/viridic_clustered_matrix.svg"
+cmap_min="${3}"
+cmap_med="${4}"
+cmap_max="${5}"
 IN = open(pathIN,'r')
 lstLines = IN.read().split("\n")
 IN.close()
@@ -336,7 +360,7 @@ OUTphage.close()
 df = pd.DataFrame(dicoDist)
 # CMAP colors
 if cmap_min[0] != "#": cmap_min = "#"+cmap_min
-if cmap_med[0] != "#": cmap_med = "#"+cmap_med
+if cmap_med != "None" and cmap_med[0] != "#": cmap_med = "#"+cmap_med
 if cmap_max[0] != "#": cmap_max = "#"+cmap_max
 if cmap_med == "None": cmap = colors.LinearSegmentedColormap.from_list('my_cmap', [cmap_min, cmap_max])
 else: cmap = colors.LinearSegmentedColormap.from_list('my_cmap', [cmap_min, cmap_med, cmap_max])
@@ -351,8 +375,8 @@ cg.ax_cbar.tick_params(labelsize=40)
 cg.ax_cbar.yaxis.label.set_size(50)
 font_size = int(100 / np.sqrt(len(df)))
 cg.ax_heatmap.tick_params(labelsize=font_size)
-plt.savefig(pathOUTpng, dpi=300)
-plt.savefig(pathOUTsvg)
+cg.savefig(pathOUTpng, dpi=300)
+cg.savefig(pathOUTsvg)
 OUT = open(pathOUTcluster, 'w')
 header = "Organism"
 for orgName in orderedOrg:
@@ -366,7 +390,7 @@ for orgName1 in orderedOrg:
 OUT.close()
 EOF
 )
-  echo "${PYTHON_SCRIPT}" > ${path_script}
+  echo "${PYTHON_SCRIPT}" > ${1}
 }
 
 
@@ -398,9 +422,6 @@ n_strech=$(printf "N%.0s" $(seq 1 $n_strech_len))
 outfmt='6 qseqid sseqid evalue bitscore qlen slen qstart qend sstart send qseq sseq nident gaps'
 outfmt_reverse='6 sseqid qseqid evalue bitscore slen qlen sstart send qstart qend sseq qseq nident gaps'
 blast_param='-evalue 1 -max_target_seqs 50000 -word_size 7 -reward 2 -penalty -3 -gapopen 5 -gapextend 2'
-cmap_min="#fffde4"
-cmap_med="None"
-cmap_max="#005AA7"
 # R and python packages
 r_packages=("magrittr" "dplyr" "tibble" "purrr" "seqinr" "stringr" "tidyr" "IRanges" "reshape2" "pheatmap" "ggplot2" "fastcluster" "parallelDist" "furrr" "future")
 py_packages=("pandas" "seaborn" "numpy" "matplotlib")
@@ -409,7 +430,6 @@ seqkit=$(which seqkit)
 blastn=$(which blastn)
 blast_formatter=$(which blast_formatter)
 rscript=$(which Rscript)
-datamash=$(which datamash)
 # Colors
 colortitle='\x1b[38;2;255;176;46m'
 colortitlel='\x1b[38;2;225;224;130m'
@@ -428,7 +448,6 @@ for arg in "$@"; do
     "--blastn") set -- "$@" "-b" ;;
     "--blast_formatter") set -- "$@" "-c" ;;
     "--rscript") set -- "$@" "-e" ;;
-    "--datamash") set -- "$@" "-g" ;;
     *) set -- "$@" "$arg"
   esac
 done
@@ -448,7 +467,6 @@ while getopts ${optstring} arg; do
     b) blastn="${OPTARG}" ;;
     c) blast_formatter="${OPTARG}" ;;
     e) rscript="${OPTARG}" ;;
-    g) datamash="${OPTARG}" ;;
     1) cmap_min="${OPTARG}" ;;
     2) cmap_med="${OPTARG}" ;;
     3) cmap_max="${OPTARG}" ;;
@@ -465,6 +483,18 @@ if [[ ! -z "${maxdepth}" && ! "${maxdepth}" =~ ^[0-9,]+$ ]]; then usage ; displa
 if [[ ! -z "${threads}" && ! "${threads}" =~ ^[0-9,]+$ ]]; then usage ; display_error "Number of threads is invalid (must be integer)" false ; fi
 if [ $threads == 0 ]; then threads=$(grep -c ^processor /proc/cpuinfo) ; fi
 # Check cmap colors
+if [[ -z "${cmap_min}" && -z "${cmap_med}" && -z "${cmap_max}" ]]; then
+  cmap_min="#fffde4" ; cmap_med="None" ; cmap_max="#005AA7"
+  check_cmap=true
+elif [[ ! -z "${cmap_min}" && ! -z "${cmap_med}" && ! -z "${cmap_max}" ]]; then
+  check_cmap=true
+elif [[ ! -z "${cmap_min}" && ! -z "${cmap_max}" ]]; then
+  cmap_med="None"
+  check_cmap=true
+else
+  check_cmap=false
+fi
+if [ "$check_cmap" = "false" ]; then usage ; display_error "CMAP arguments must be -1 (& -2) & -3" false ; fi
 if [[ ! $cmap_min =~ ^#?([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$ ]]; then usage ; display_error "CMAP hexadecimal color for 0% is invalid (must be hexa)" false ; fi
 if [[ "$cmap_med" != "None" && ! $cmap_med =~ ^#?([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$ ]]; then usage ; display_error "CMAP hexadecimal color for 50% is invalid (must be hexa)" false ; fi
 if [[ ! $cmap_max =~ ^#?([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$ ]]; then usage ; display_error "CMAP hexadecimal color for 100% is invalid (must be hexa)" false ; fi
@@ -480,7 +510,6 @@ blast_formatter_version=$(${blast_formatter} -version | grep -oP 'blast_formatte
 if [ "$(printf '%s\n' "$blast_formatter_version" "2.11.0" | sort -V | tail -n1)" = "2.11.0" ];  then display_error "blast_formatter version is older than 2.11 (found ${blast_formatter_version})" false ; fi
 if ! command -v ${seqkit} &> /dev/null; then display_error "seqkit not found (use \$PATH or specify it)" false ; fi
 if ! command -v ${rscript} &> /dev/null; then display_error "rscript not found (use \$PATH or specify it)" false ; fi
-if ! command -v ${datamash} &> /dev/null; then display_error "datamash not found (use \$PATH or specify it)" false ; fi
 # Output Folder/Files
 mkdir -p ${path_dir_out} ${path_dir_out}/blastn ${path_dir_out}/viridic 2>/dev/null
 if [[ ! $? -eq 0 ]] ; then usage && display_error "Cannot create output directory" false ; fi
@@ -531,6 +560,11 @@ fi
 echo -ne "| ${colortitle}Output dir    : ${NC}${out}" ; rjust $((17+${#out})) true
 echo -ne "| ${colortitle}TMP folder    : ${NC}${dir_tmp}" ; rjust $((17+${#dir_tmp})) true
 echo -ne "| ${colortitle}Threads       : ${NC}${threads}" ; rjust $((17+${#threads})) true
+if [[ "$cmap_med" == "None" ]]; then
+  echo -ne "| ${colortitle}CMAP colors   : ${NC}${cmap_min} > ${cmap_max}" ; rjust $((20+${#cmap_min}+${#cmap_max})) true
+else
+  echo -ne "| ${colortitle}CMAP colors   : ${NC}${cmap_min} > ${cmap_med} > ${cmap_max}" ; rjust $((23+${#cmap_min}+${#cmap_med}+${#cmap_max})) true
+fi
 # Check R packages
 SPINNY_FRAMES=( "| Check R packages                                                    |" "| Check R packages  .                                                 |" "| Check R packages  ..                                                |" "| Check R packages  ...                                               |" "| Check R packages  ....                                              |" "| Check R packages  .....                                             |")
 spinny::start
@@ -538,7 +572,6 @@ for package in "${r_packages[@]}"; do
   if ! Rscript -e "if(!require('${package}', quietly = TRUE)) stop()" 2>/dev/null ; then display_error "Required R package \"${package}\" not found" false ; fi
 done
 spinny::stop
-
 # Check python packages
 SPINNY_FRAMES=( "| Check python packages                                               |" "| Check python packages  .                                            |" "| Check python packages  ..                                           |" "| Check python packages  ...                                          |" "| Check python packages  ....                                         |" "| Check python packages  .....                                        |")
 spinny::start
@@ -546,8 +579,10 @@ for package in "${py_packages[@]}"; do
   python -c "import ${package}" 2>/dev/null || display_error "Required python package \"${package}\" not found" false
 done
 spinny::stop
+# Init python scripts
+make_python_matrix_script ${dir_tmp}/matrix.py ${dir_tmp}/all_viridic.out ${path_dir_out}/viridic_matrix.tsv
+make_python_assign_script ${dir_tmp}/assign.py ${path_dir_out} ${cmap_min} ${cmap_med} ${cmap_max}
 echo -e "╰─────────────────────────────────────────────────────────────────────╯"
-
 
 
 # ************************************************************************* #
@@ -590,6 +625,7 @@ else
 fi
 
 # ***** LAUNCH missing blastn comparisons ***** #
+# blast output could be empty if any similarity found
 if [[ ! ${nb_missing_comp} -eq 0 ]]; then
   echo -ne "| ${colortitle}Launch BlastN :${NC}${colortitlel} in progress${NC}" ; rjust 28 true
   arrayPid=()
@@ -650,7 +686,7 @@ if [[ ! ${nb_missing_comp} -eq 0 ]]; then
   done < ${dir_tmp}/results_missing_reduce.txt
   # Final wait & progress
   while [ $(jobs -p | wc -l) -gt 1 ]; do parallel_progress "blastn" "${nb_missing_comp}" ; sleep 1 ; done
-  rm -f "${dir_tmp}/*_blast.sh" "${dir_tmp}/blastn/*.lock" "${path_dir_out}/blastn/*.lock"
+  rm -f ${dir_tmp}/*_blast.sh ${dir_tmp}/blastn/*.lock ${path_dir_out}/blastn/*.lock
   echo -ne '\e[1A\e[K'
   echo -e '\e[1A\e[K'
   echo -ne "| ${colortitle}Launch BlastN :${NC} done" ; rjust 21 true
@@ -659,10 +695,11 @@ fi
 # ***** LAUNCH missing viridic comparisons ***** #
 if [[ ! ${nb_missing_comp} -eq 0 ]]; then
   echo -ne "| ${colortitle}Launch VIRIDIC:${NC}${colortitlel} in progress${NC}" ; rjust 28 true
+  rm -f ${dir_tmp}/blastn/*.lock
   nb_blast_file=$(ls -f1 ${dir_tmp}/blastn | wc -l)
   arrayPid=()
   cpt_done=0
-  for blast_out in ${dir_tmp}/blastn/*; do
+  for blast_out in ${dir_tmp}/blastn/*.out; do
     # Remove empty line in blastn files
     sed -i '/^$/d' ${blast_out}
     path_missing_viridic=${dir_tmp}/viridic/$(basename ${blast_out})
@@ -720,9 +757,10 @@ for file in ${path_dir_out}/viridic/*.out; do
     tail -n +2 ${file} | cut -f 1,2,10 | sed s/"\""/""/g >> ${dir_tmp}/all_viridic.out
     echo -e "${phage_name}\t${phage_name}\t100.0" >> ${dir_tmp}/all_viridic.out
 done
-${datamash} -W crosstab 2,1 unique 3 < ${dir_tmp}/all_viridic.out | sed s/"N\/A"/"0.0"/ > ${path_dir_out}/viridic_matrix.tsv 2>>${log}
+python3 ${dir_tmp}/matrix.py 2>>${log}
+if [ $? -ne 0 ]; then spinny::stop ; echo -ne " fail" ; rjust 21 true ; display_error "matrix.py error (check log)" false ; fi
 spinny::stop
-if [[ ! -f "${path_dir_out}/viridic_matrix.tsv" ]]; then echo -ne " fail" ; rjust 21 true display_error "Any viridic matrix created (check log)" false ; fi
+if [[ ! -f "${path_dir_out}/viridic_matrix.tsv" ]]; then echo -ne " fail" ; rjust 21 true ; display_error "Any viridic matrix created (check log)" false ; fi
 echo -ne " done" ; rjust 21 true
 
 # ***** Create distance matrix ***** #
@@ -730,8 +768,8 @@ echo -ne "| ${colortitle}Assignment    :${NC}"
 if [ "$(type -t title)" = "function" ]; then title "viridic | assign" ; fi
 SPINNY_FRAMES=( " taxonomic assignment                                |" " taxonomic assignment .                              |" " taxonomic assignment ..                             |" " taxonomic assignment ...                            |" " taxonomic assignment ....                           |" " taxonomic assignment .....                          |")
 spinny::start
-make_python_script ${dir_tmp}/assign.py ${path_dir_out} ${cmap_min} ${cmap_med} ${cmap_max}
 python3 ${dir_tmp}/assign.py 2>>${log}
+if [ $? -ne 0 ]; then spinny::stop ; echo -ne " fail" ; rjust 21 true ; display_error "assign.py error (check log)" false ; fi
 spinny::stop
 nb_family=$(grep -cE "^family" ${path_dir_out}/viridic_per_rank.tsv)
 nb_genus=$(grep -cE "^genus" ${path_dir_out}/viridic_per_rank.tsv)
@@ -741,4 +779,6 @@ echo -ne " done${summary_assign}" ; rjust $((21+${#summary_assign})) true
 
 # End processing
 echo -e "╰─────────────────────────────────────────────────────────────────────╯"
+rm -f ${path_dir_out}/blastn/*.lock
+# rm -rf ${dir_tmp}
 if [ "$(type -t title)" = "function" ]; then title "viridic | done" ; fi
