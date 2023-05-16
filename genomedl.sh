@@ -36,7 +36,7 @@ function display_error {
 
 function usage {
     echo -e "╭───────────────────────────────────────────────────────────────────╮"
-    echo -e "|"${colortitlel}$' USAGE: genomedl.sh -o DIR -d DIV (-t INT -f DIR -w DIR -r INT)'${NC}"    |"
+    echo -e "|"${colortitlel}$' USAGE: genomedl.sh -o DIR -d (BCT/PHG) [OPTIONS]'${NC}"                  |"
     echo "|                                                                   |"
     echo -e "|"${colortitlel}$' Required options:'${NC}"                                                 |"
     echo "|"$'  -o Output database folder'"                                        |"
@@ -437,7 +437,7 @@ if [[ ${update_summary} = true || ! -f ${path_db}/assembly_summary_taxids.txt ||
     # Get nodes
     SPINNY_FRAMES=( " nodes extraction                                    |" " nodes extraction .                                  |" " nodes extraction ..                                 |" " nodes extraction ...                                |" " nodes extraction ....                               |" " nodes extraction .....                              |")
     spinny::start
-    tar xf ${cur_taxdump} -C ${dir_tmp} $(get_base ${nodes_dmp}) 2>>${log}
+    tar xf ${cur_taxdump} -C ${dir_tmp} $(get_base ${nodes_dmp}) $(get_base ${fullnamelineage_dmp}) 2>>${log}
     spinny::stop
     # Lineage filtering
     SPINNY_FRAMES=( " gencode filtering                                   |" " gencode filtering .                                 |" " gencode filtering ..                                |" " gencode filtering ...                               |" " gencode filtering ....                              |" " gencode filtering .....                             |")
