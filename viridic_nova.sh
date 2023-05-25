@@ -11,9 +11,9 @@ function header {
 }
 
 function footer {
-echo -ne "╭─────────────────────────────────────────────────────────────────────╮\n|"; \
-echo -ne "${colortitle} ＶＩＲＩＤＩＣ  ｎ💥ｖａ  ｃｏｍｐｌｅｔｅｄ !                      ${NC}" ;\
-echo -ne "|\n╰─────────────────────────────────────────────────────────────────────╯\n"
+  echo -ne "╭─────────────────────────────────────────────────────────────────────╮\n|"
+  echo -ne "${colortitle} ＶＩＲＩＤＩＣ  ｎ💥ｖａ  ｃｏｍｐｌｅｔｅｄ !                      ${NC}"
+  echo -ne "|\n╰─────────────────────────────────────────────────────────────────────╯\n"
 }
 
 function rjust {
@@ -82,18 +82,13 @@ function usage {
 
 function progress() {
     # progress percent text color
-    local w=30 p=$1 n=$2 color=$3; shift
+    local w=30 p=$1 color=$2; shift
     echo -ne "| "
     # create a string of spaces, then change them to dots
     printf -v dots "%*s" "$(( $p*$w/100 ))" ""; dots=${dots// /.}
     # print those dots on a fixed-width space plus the percentage etc. 
     printf "\r\e[K|%-*s| %3d%%" "$w" "$dots" "$p"
-    if [[ ! -z "${n}" ]]; then
-      echo -ne "${color} (${n})\x1b[0m"
-      rjust $((39+${#n})) false
-    else
-      rjust 36 false
-    fi 
+    rjust 36 false
 }
 
 function parallel_progress() {
@@ -298,7 +293,8 @@ OUT.write("\t"+"\t".join(list(dicoMatrix.keys()))+"\n")
 for phage1 in dicoMatrix:
     line = phage1
     for phage2 in dicoMatrix:
-        line += "\t"+str(dicoMatrix[phage1][phage2])
+        try: line += "\t"+str(dicoMatrix[phage1][phage2])
+        except KeyError: line += "\t0.0"
     OUT.write(line+"\n")
 OUT.close()
 EOF
@@ -623,10 +619,10 @@ sort ${path_dir_out}/history.txt | diff --speed-large-files ${dir_tmp}/results_e
 cat ${dir_tmp}/results_missing.txt | awk '{if ($1 < $2) print $0; else if ($1 > $2) print $2"\t"$1}' | sort -u > ${dir_tmp}/results_missing_reduce.txt
 nb_missing_comp=$(wc -l <${dir_tmp}/results_missing_reduce.txt)
 spinny::stop
-echo -ne '\r\e[K'
 if [[ ${nb_missing_comp} -eq 0 ]]; then
   echo -ne "| ${colortitle}Check history :${NC} ${nb_expected_comp} [up-to-date]" ; rjust $((${#nb_expected_comp}+30)) true
 else
+  echo -ne '\r\e[K'
   echo -ne "| ${colortitle}Check history :${NC} ${nb_missing_comp}/${nb_expected_comp} missing" ; rjust $((${#nb_expected_comp}+${#nb_missing_comp}+26)) true
 fi
 
@@ -661,7 +657,7 @@ if [[ ! ${nb_missing_comp} -eq 0 ]]; then
       cat ${dir_tmp}/temp.fasta >> ${path_fasta_reformat2}
     fi
     # Launch blast
-    job_name="${phage_name1}_${phage_name2}"
+    job_name="${phage_name1}_____${phage_name2}"
     bash_process="${dir_tmp}/${job_name}_blast.sh"
     # Construct process bash: blast > Reformat blast (for reverse don't forget to inverse subjectpos if reverse) > cat > clean
     echo -e "${blastn} -query ${path_fasta_reformat1} -subject ${path_fasta_reformat2} -out ${dir_tmp}/${job_name}_blast.asn -outfmt \"11\" ${blast_param}" > ${bash_process}
@@ -669,22 +665,6 @@ if [[ ! ${nb_missing_comp} -eq 0 ]]; then
     echo -e "${blast_formatter} -archive ${dir_tmp}/${job_name}_blast.asn -outfmt \"${outfmt_reverse}\" | awk '{OFS=\"\\\\t\"; if(\$7>\$8) {t=\$7; \$7=\$8; \$8=t ; t=\$9; \$9=\$10; \$10=t} print}' > ${dir_tmp}/${job_name}_blastr.out" >> ${bash_process}
     echo -e "echo \"\" >> ${dir_tmp}/${job_name}_blast.out" >> ${bash_process}
     echo -e "echo \"\" >> ${dir_tmp}/${job_name}_blastr.out" >> ${bash_process}
-    (
-      flock -x 9
-      echo -e "cat ${dir_tmp}/${job_name}_blast.out >> ${path_missing_blast1}"
-    ) 9>${path_missing_blast1}.lock >> ${bash_process}
-    (
-      flock -x 9
-      echo -e "cat ${dir_tmp}/${job_name}_blastr.out >> ${path_missing_blast2}"
-    ) 9>${path_missing_blast2}.lock >> ${bash_process}
-    (
-      flock -x 9
-      echo -e "cat ${dir_tmp}/${job_name}_blast.out >> ${path_final_blast1}"
-    ) 9>${path_final_blast1}.lock >> ${bash_process}
-    (
-      flock -x 9
-      echo -e "cat ${dir_tmp}/${job_name}_blastr.out >> ${path_final_blast2}"
-    ) 9>${path_final_blast2}.lock >> ${bash_process}
     # Launch process
     bash ${bash_process} 2>>${log} &
     arrayPid+=($!)
@@ -697,6 +677,35 @@ if [[ ! ${nb_missing_comp} -eq 0 ]]; then
   echo -e '\e[1A\e[K'
   echo -ne "| ${colortitle}Launch BlastN :${NC} done" ; rjust 21 true
 fi
+
+
+# ***** MERGE blastn results ***** #
+if [[ ! ${nb_missing_comp} -eq 0 ]]; then
+  nb_blast_out=$(find "${dir_tmp}/" -type f -name '*_blast*.out' | wc -l)
+  echo -ne "| ${colortitle}Merging       :${NC} ${nb_blast_out} blast out" ; rjust $((27+${#nb_blast_out})) true
+  if [ "$(type -t title)" = "function" ]; then title "viridic | merge .out" ; fi
+  cpt_done=0
+  for blast_file in ${dir_tmp}/*_blast.out; do 
+    job_name=$(basename $blast_file | sed s/"_blast.out"/""/)
+    phage_name1=$(echo $job_name | awk '{ gsub(/_____/, " " ); print $1; }')
+    cat ${blast_file} >> "${dir_tmp}/blastn/${phage_name1}.out"
+    cat ${blast_file} >> "${path_dir_out}/blastn/${phage_name1}.out"
+    ((cpt_done++))
+    percent_done=$(( ${cpt_done}*100/${nb_blast_out} ))
+    progress ${percent_done} "" ${colorterm}
+  done
+  for blastr_file in ${dir_tmp}/*_blastr.out; do 
+    job_name=$(basename $blastr_file | sed s/"_blastr.out"/""/)
+    phage_name2=$(echo $job_name | awk '{ gsub(/_____/, " " ); print $2; }')
+    cat ${blastr_file} >> "${dir_tmp}/blastn/${phage_name2}.out"
+    cat ${blastr_file} >> "${path_dir_out}/blastn/${phage_name2}.out"
+    ((cpt_done++))
+    percent_done=$(( ${cpt_done}*100/${nb_blast_out} ))
+    progress ${percent_done} ${colorterm}
+  done
+  echo -e '\e[1A\e[K'
+fi
+
 
 # ***** LAUNCH missing viridic comparisons ***** #
 if [[ ! ${nb_missing_comp} -eq 0 ]]; then
