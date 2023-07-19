@@ -673,7 +673,7 @@ if [[ ! ${nb_missing_comp} -eq 0 ]]; then
   # Final wait & progress
   while [ $(jobs -p | wc -l) -gt 1 ]; do parallel_progress "blastn" "${nb_missing_comp}" ; sleep 1 ; done
   rm -f ${dir_tmp}/*_blast.sh ${dir_tmp}/blastn/*.lock ${path_dir_out}/blastn/*.lock
-  echo -ne '\e[1A\e[K'
+  echo -e '\e[1A\e[K'
   echo -ne '\e[1A\e[K'
   echo -ne "| ${colortitle}Launch BlastN :${NC} done" ; rjust 21 true
 fi

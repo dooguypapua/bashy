@@ -24,7 +24,7 @@ function display_error {
   str_error=${1}
   bool_in_progress=${2}
   str_len_error=${#str_error}
-  if [[ ${bool_in_progress} == true ]]; then echo -ne "\n╰───────────────────────────────────────────────────────────────────╯\n" ; fi 
+  if [[ ${bool_in_progress} == true ]]; then echo -ne "\n╰───────────────────────────────────────────────────────────────────╯\n" ; fi
   echo -ne "╭───────────────────────────────────────────────────────────────────╮\n| "
   echo -ne "${colorred}ERROR: ${NC}"
   echo -ne "┊ "
@@ -41,39 +41,41 @@ function usage {
     echo -e "|"${colortitlel}$' Required options:'${NC}"                                                 |"
     echo "|"$'  -o Output database folder'"                                        |"
     echo "|"$'  -d Division'"                                                      |"
-    echo "|"$'     Bacteria      : "BCT"'"                                         |"
-    echo "|"$'     Phages        : "PHG"'"                                         |"
+    echo "|"$'     Bacteria        : "BCT"'"                                       |"
+    echo "|"$'     Phages          : "PHG"'"                                       |"
     echo "|                                                                   |"
     echo -e "|"${colortitlel}$' Optional options:'${NC}"                                                 |"
     echo "|"$'  -i Taxonomic identifier(s) (comma-separated entries)'"             |"
-    echo "|"$'     Caudovirales  : "28883"'"                                       |"
-    echo "|"$'     Kyanoviridae  : "2946160"'"                                     |"
-    echo "|"$'     Straboviridae : "2946170"'"                                     |"
-    echo "|"$'     Vibrionaceae  : "641"'"                                         |"
-    echo "|"$'     V.crassostreae: "246167"'"                                      |"
-    echo "|"$'     V.chagasii    : "170679"'"                                      |"
-    echo "|"$'  -l List only mode'"                                                |"    
+    echo "|"$'     Caudovirales    : "28883"'"                                     |"
+    echo "|"$'     Kyanoviridae    : "2946160"'"                                   |"
+    echo "|"$'     Straboviridae   : "2946170"'"                                   |"
+    echo "|"$'     Ackermannviridae: "2169529"'"                                   |"
+    echo "|"$'     Vibrionaceae    : "641"'"                                       |"
+    echo "|"$'     V.crassostreae  : "246167"'"                                    |"
+    echo "|"$'     V.chagasii      : "170679"'"                                    |"
+    echo "|"$'  -l List only mode'"                                                |"
+    echo "|"$'  -n Disable checkV'"                                                |"
     echo "|"$'  -t Number of threads'"                                             |"
-    echo "|"$'     Default       : 0 (all)'"                                       |"    
+    echo "|"$'     Default         : 0 (all)'"                                     |"
     echo "|"$'  -f Force rsync update'"                                            |"
-    echo "|"$'     Default       : conservative'"                                  |"
+    echo "|"$'     Default         : conservative'"                                |"
     echo "|"$'  -w Temporary folder'"                                              |"
-    echo "|"$'     Default       : /tmp'"                                          |"    
+    echo "|"$'     Default         : /tmp'"                                        |"
     echo "|"$'  -r Number of attempts to retry for rsync/checkv'"                  |"
-    echo "|"$'     Default       : 5'"                                             |"
+    echo "|"$'     Default         : 5'"                                           |"
     echo "|"$'  -c Daemon connection timeout for rsync'"                           |"
-    echo "|"$'     Default       : 5'"                                             |"
+    echo "|"$'     Default         : 5'"                                           |"
     echo "|"$'  -s Duration time stop (Xm, Xh, Xd)'"                               |"
-    echo "|"$'     Default       : 0 (unlimited)'"                                 |"  
-    echo "|                                                                   |"  
+    echo "|"$'     Default         : 0 (unlimited)'"                               |"
+    echo "|                                                                   |"
     echo -e "|"${colortitlel}$' Tool locations: '${NC}"                                                  |"
     echo "|"$' Specify following tool location if not in ${PATH}'"                 |"
     echo "|"$'  --prodigal'"                                                       |"
-    echo "|"$'  --check'"                                                          |"
-    echo "|"$'  --extractfeat'"                                                    |"    
-    echo "|"$'  --diamond'"                                                        |"    
-    echo "|"$'  --phanotate'"                                                      |"    
-    echo "|"$'  --transeq'"                                                        |"    
+    echo "|"$'  --checkv'"                                                         |"
+    echo "|"$'  --extractfeat'"                                                    |"
+    echo "|"$'  --diamond'"                                                        |"
+    echo "|"$'  --phanotate'"                                                      |"
+    echo "|"$'  --transeq'"                                                        |"
     echo "╰───────────────────────────────────────────────────────────────────╯"
 }
 
@@ -124,14 +126,14 @@ function progress() {
     echo -ne "| "
     # create a string of spaces, then change them to dots
     printf -v dots "%*s" "$(( $p*$w/100 ))" ""; dots=${dots// /.}
-    # print those dots on a fixed-width space plus the percentage etc. 
+    # print those dots on a fixed-width space plus the percentage etc.
     printf "\r\e[K|%-*s| %3d%%" "$w" "$dots" "$p"
     if [[ ! -z "${n}" ]]; then
       echo -ne "${color} (${n})\x1b[0m"
       rjust $((39+${#n})) false
     else
       rjust 36 false
-    fi 
+    fi
 }
 
 function parallel_progress() {
@@ -147,7 +149,7 @@ function parallel_progress() {
         ((cpt_done++))
       fi
   done
-  arrayPid=("${new_arrayPid[@]}")   
+  arrayPid=("${new_arrayPid[@]}")
   percent_done=$(( ${cpt_done}*100/${total} ))
   progress $percent_done
   title "genomedl | ${title_str} (${percent_done}%%)"
@@ -189,6 +191,7 @@ start_time=$SECONDS
 cpt_download=0
 cpt_done=0
 cpt_rsync_failed=0
+disable_checkv=false
 # Tools paths
 prodigal="prodigal"
 extractfeat="extractfeat"
@@ -229,7 +232,7 @@ for arg in "$@"; do
   esac
 done
 # list of arguments expected in the input
-optstring=":o:d:i:w:r:t:c:p:e:m:g:s:a:k:flh"
+optstring=":o:d:i:w:r:t:c:p:e:m:g:s:a:k:flnh"
 while getopts ${optstring} arg; do
   case ${arg} in
     h) usage ; exit 0 ;;
@@ -238,6 +241,7 @@ while getopts ${optstring} arg; do
     i) tax_ids="${OPTARG}" ;;
     f) update_rsync=true ;;
     l) list_only=true ;;
+    n) disable_checkv=true ;;
     w) tmp_folder="${OPTARG}" ;;
     t) threads="${OPTARG}" ;;
     r) max_retry="${OPTARG}" ;;
@@ -245,8 +249,8 @@ while getopts ${optstring} arg; do
     s) elapse_stop="${OPTARG}" ;;
     p) prodigal="${OPTARG}" ;;
     e) extractfeat="${OPTARG}" ;;
-    m) diamond="${OPTARG}" ;;      
-    k) checkv="${OPTARG}" ;;      
+    m) diamond="${OPTARG}" ;;
+    k) checkv="${OPTARG}" ;;
     :) usage ; display_error "Must supply an argument to -$OPTARG." false ; exit 1 ;;
     ?) usage ; display_error "Invalid option: -${OPTARG}." false ; exit 2 ;;
   esac
@@ -262,7 +266,7 @@ if [ $threads == 0 ]; then threads=$(grep -c ^processor /proc/cpuinfo) ; fi
 if [[ ! -z "${max_retry}" && ! "${max_retry}" =~ ^[0-9,]+$ ]]; then usage ; display_error "Number of rsync/checkv attempts is invalid (must be integer)" false ; fi
 if [[ ! -z "${contimeout}" && ! "${contimeout}" =~ ^[0-9,]+$ ]]; then usage ; display_error "Number of daemon connection timeout is invalid (must be integer)" false ; fi
 # Duration stop time
-if [ $elapse_stop != 0 ]; then 
+if [ $elapse_stop != 0 ]; then
   elapse_stop_format=$(echo $elapse_stop | tr -d '0123456789')
   elapse_stop_num=$(echo $elapse_stop | tr -d 'mhd')
   case $elapse_stop_format in
@@ -356,9 +360,13 @@ else
     echo -ne "| ${colortitle}Update mode${NC} : conservative" ; rjust "27" true
   fi
 fi
+# Dsiplay checkV Unable/disable
+if [ ${disable_checkv} = true ]; then
+  echo -ne "| ${colortitle}No checkV ${NC}  : true" ; rjust "19" true
+fi
 # Display last release date
 if [ -f "${path_db}/release.txt" ]; then
-  last_release=$(cat "${path_db}/release.txt")  
+  last_release=$(cat "${path_db}/release.txt")
   echo -ne "| ${colortitle}Last release: ${NC}${last_release}" ; rjust $((15+${#last_release})) true
 else
   echo -ne "| ${colortitle}Last release: ${NC}any found" ; rjust "24" true
@@ -422,7 +430,7 @@ fi
 
 # ***** FILTERING ***** # (disable if division=BCT and without taxonomy identifier)
 echo -ne "| ${colortitle}Filtering   :${NC}"
-if [[ ${update_summary} = true || ! -f ${path_db}/assembly_summary_taxids.txt || ! -f ${download_urls_final} ]]; then 
+if [[ ${update_summary} = true || ! -f ${path_db}/assembly_summary_taxids.txt || ! -f ${download_urls_final} ]]; then
   # Sort assembly
   SPINNY_FRAMES=( " summary reading                                     |" " summary reading .                                   |" " summary reading ..                                  |" " summary reading ...                                 |" " summary reading ....                                |" " summary reading .....                               |")
   spinny::start
@@ -451,7 +459,7 @@ if [[ ${update_summary} = true || ! -f ${path_db}/assembly_summary_taxids.txt ||
     awk '$1' ${lineage_taxids} | sort -u -o ${lineage_taxids}
     join_as_fields1="1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9,1.10,1.11,1.12,1.13,1.14,1.15,1.16,1.17,1.18,1.19,1.20,1.21,1.22,1.23"
     join -1 6 -2 1 "${summary_sorted}" ${lineage_taxids} -o ${join_as_fields1} -t$'\t' | sort | uniq >> "${path_db}/assembly_summary_taxids.txt"
-    spinny::stop  
+    spinny::stop
   else
     # Get taxidlineage
     SPINNY_FRAMES=( " taxidlineage extraction                             |" " taxidlineage extraction .                           |" " taxidlineage extraction ..                          |" " taxidlineage extraction ...                         |" " taxidlineage extraction ....                        |" " taxidlineage extraction .....                       |")
@@ -476,7 +484,7 @@ if [[ ${update_summary} = true || ! -f ${path_db}/assembly_summary_taxids.txt ||
     join -1 6 -2 1 "${summary_sorted}" ${lineage_taxids} -o ${join_as_fields1} -t$'\t' | sort | uniq >> "${path_db}/assembly_summary_taxids.txt"
     spinny::stop
   fi
-  # Making url files 
+  # Making url files
   SPINNY_FRAMES=( " create url files                                    |" " create url files .                                  |" " create url files ..                                 |" " create url files ...                                |" " create url files ....                               |" " create url files .....                              |")
   spinny::start
   input_data=$(tail -n+3 "${path_db}/assembly_summary_taxids.txt" | cut -f 1,18,20 | tr "\t" "#") # replace tabs with alarm bell
@@ -506,7 +514,7 @@ if [[ ${update_summary} = true || ! -f ${path_db}/assembly_summary_taxids.txt ||
     sed -i -e s/"__.*"/""/g ${download_urls_refseq}
   else
     touch ${download_urls_refseq}
-  fi  
+  fi
   cat ${download_urls_genbank} ${download_urls_refseq} > ${download_urls}
   spinny::stop
 fi
@@ -596,7 +604,7 @@ if [[ ${update_summary} = true || ! -f ${path_db}/assembly_summary.json ]]; then
       fi
       if [[ $isolate_name != "" && "$format_name" != *"$isolate_name"* ]]
         then format_name="${format_name}_$isolate_name"
-      fi    
+      fi
       JSON="\n\"${acc_name}\":"
       JSON="${JSON}\t{\n"
       JSON="${JSON}\t\"taxid\":\"${taxid}\",\n"
@@ -654,7 +662,7 @@ else
       else
         progress ${percent_done} "${acc_name}" ${colorterm}
       # Check genome folder and gbff file
-      if [ ! -e "${path_db_acc}"/*.gbff.gz ]; then      
+      if [ ! -e "${path_db_acc}"/*.gbff.gz ]; then
         echo -e "${basename}: rsync failed" >> ${log}
         ((cpt_rsync_failed++))
       fi
@@ -678,7 +686,7 @@ echo -ne "| ${colortitle}FFN files   :${NC}"
 title "genomedl | ffn"
 SPINNY_FRAMES=( " check missing                                       |" " check missing .                                     |" " check missing ..                                    |" " check missing ...                                   |" " check missing ....                                  |" " check missing .....                                 |")
 spinny::start
-totalMissingFFN=$((${nb_total}-${cpt_rsync_failed}-$(find ${path_db}/GC* -type f -name '*_gene.ffn.gz' | wc -l)))
+totalMissingFFN=$((${nb_total}-${cpt_rsync_failed}-$(find ${path_db}/ -type f -name '*_gene.ffn.gz' -exec ls -d {} + | wc -l)))
 spinny::stop
 arrayPid=()
 cpt_done=0
@@ -688,32 +696,34 @@ if [[ ${totalMissingFFN} -gt 0 ]]; then
   for ass_dir in ${path_db}/GC*
     do
     if [[ ! -z "${elapse_stop_sec}" && $(($SECONDS-start_time)) -ge ${elapse_stop_sec} ]]; then summary true ; exit 0 ; fi
-    if [ ! -e "${ass_dir}"/*_gene.ffn.gz ]; then      
+    if [ ! -e "${ass_dir}"/*_gene.ffn.gz ]; then
       # Paths
-      gbk_path=$(ls -1 ${ass_dir}/*.gbff.gz)
-      ffn_path=$(echo "${gbk_path}" | sed s/"_genomic.gbff.gz"/"_gene.ffn"/)
-      acc_name=$(get_base ${gbk_path} | sed s/"_genomic.gbff.gz"/""/)
-      org_name=$(zgrep -m 1 "SOURCE" ${gbk_path} | cut -d " " -f 7-  | tr ' ' '_' | tr '/' '-' | tr ':' '-' | cut -d "(" -f 1 | cut -d "=" -f 1)
-      bash_process="${dir_tmp}/${acc_name}_extract.sh"
-      # Construct process bash / extract gene or CDS
-      echo -e "gzip -d -c \"${gbk_path}\" 1>\"${dir_tmp}/${acc_name}.gbk\"" > ${bash_process}
-      echo -e "${extractfeat} -sequence \"${dir_tmp}/${acc_name}.gbk\" -outseq \"${dir_tmp}/${acc_name}.ffn\" -type gene" >> ${bash_process}
-      echo -e "if [ -s \"${dir_tmp}/${acc_name}.ffn\" ]; then" >> ${bash_process} # Check if file is empty due to bad gene tag in gbff
-      echo -e "  sed -E s/\"\\s.+\"/\" extractfeat gene [${org_name}]\"/g \"${dir_tmp}/${acc_name}.ffn\" > ${ffn_path}" >> ${bash_process}
-      echo -e "  gzip -f \"${ffn_path}\"" >> ${bash_process}
-      echo -e "else" >> ${bash_process}
-      echo -e "  ${extractfeat} -sequence \"${dir_tmp}/${acc_name}.gbk\" -outseq \"${dir_tmp}/${acc_name}.ffn\" -type cds" >> ${bash_process}
-      echo -e "  if [ -s \"${dir_tmp}/${acc_name}.ffn\" ]; then" >> ${bash_process} # Check if file is empty due to bad gene tag in gbff
-      echo -e "    sed -E s/\"\\s.+\"/\" extractfeat cds [${org_name}]\"/g \"${dir_tmp}/${acc_name}.ffn\" > ${ffn_path}" >> ${bash_process}
-      echo -e "    gzip -f \"${ffn_path}\"" >> ${bash_process}
-      echo -e "  else" >> ${bash_process} # if any gene or CDS create an empty file
-      echo -e "    touch ${ffn_path}.gz" >> ${bash_process}
-      echo -e "  fi" >> ${bash_process}
-      echo -e "fi" >> ${bash_process}
-      # Launch process
-      bash ${bash_process} 2>>${log} &
-      arrayPid+=($!)
-      pwait ${threads} ; parallel_progress "gbk2ffn" "${totalMissingFFN}"
+      gbk_path=$(ls -1 ${ass_dir}/*.gbff.gz 2>/dev/null) || gbk_path="None"
+      if [ "$gbk_path" != "None" ]; then
+        ffn_path=$(echo "${gbk_path}" | sed s/"_genomic.gbff.gz"/"_gene.ffn"/)
+        acc_name=$(get_base ${gbk_path} | sed s/"_genomic.gbff.gz"/""/)
+        org_name=$(zgrep -m 1 "SOURCE" ${gbk_path} | cut -d " " -f 7-  | tr ' ' '_' | tr '/' '-' | tr ':' '-' | cut -d "(" -f 1 | cut -d "=" -f 1)
+        bash_process="${dir_tmp}/${acc_name}_extract.sh"
+        # Construct process bash / extract gene or CDS
+        echo -e "gzip -d -c \"${gbk_path}\" 1>\"${dir_tmp}/${acc_name}.gbk\"" > ${bash_process}
+        echo -e "${extractfeat} -sequence \"${dir_tmp}/${acc_name}.gbk\" -outseq \"${dir_tmp}/${acc_name}.ffn\" -type gene" >> ${bash_process}
+        echo -e "if [ -s \"${dir_tmp}/${acc_name}.ffn\" ]; then" >> ${bash_process} # Check if file is empty due to bad gene tag in gbff
+        echo -e "  sed -E s/\"\\s.+\"/\" extractfeat gene [${org_name}]\"/g \"${dir_tmp}/${acc_name}.ffn\" > ${ffn_path}" >> ${bash_process}
+        echo -e "  gzip -f \"${ffn_path}\"" >> ${bash_process}
+        echo -e "else" >> ${bash_process}
+        echo -e "  ${extractfeat} -sequence \"${dir_tmp}/${acc_name}.gbk\" -outseq \"${dir_tmp}/${acc_name}.ffn\" -type cds" >> ${bash_process}
+        echo -e "  if [ -s \"${dir_tmp}/${acc_name}.ffn\" ]; then" >> ${bash_process} # Check if file is empty due to bad gene tag in gbff
+        echo -e "    sed -E s/\"\\s.+\"/\" extractfeat cds [${org_name}]\"/g \"${dir_tmp}/${acc_name}.ffn\" > ${ffn_path}" >> ${bash_process}
+        echo -e "    gzip -f \"${ffn_path}\"" >> ${bash_process}
+        echo -e "  else" >> ${bash_process} # if any gene or CDS create an empty file
+        echo -e "    touch ${ffn_path}.gz" >> ${bash_process}
+        echo -e "  fi" >> ${bash_process}
+        echo -e "fi" >> ${bash_process}
+        # Launch process
+        bash ${bash_process} 2>>${log} &
+        arrayPid+=($!)
+        pwait ${threads} ; parallel_progress "gbk2ffn" "${totalMissingFFN}"
+      fi
     fi
   done
   # Final wait & progress
@@ -731,7 +741,7 @@ if [ ${division} == "PHG" ]; then
   title "genomedl | phanotate"
   SPINNY_FRAMES=( " check missing                                       |" " check missing .                                     |" " check missing ..                                    |" " check missing ...                                   |" " check missing ....                                  |" " check missing .....                                 |")
   spinny::start
-  totalMissingPhanotateFFN=$((${nb_total}-${cpt_rsync_failed}-$(find ${path_db}/GC* -type f -name '*_phanotate.ffn.gz' | wc -l)))
+  totalMissingPhanotateFFN=$((${nb_total}-${cpt_rsync_failed}-$(find ${path_db}/ -type f -name '*_phanotate.ffn.gz' -exec ls -d {} + | wc -l)))
   spinny::stop
   arrayPid=()
   cpt_done=0
@@ -742,27 +752,29 @@ if [ ${division} == "PHG" ]; then
       if [[ ! -z "${elapse_stop_sec}" && $(($SECONDS-start_time)) -ge ${elapse_stop_sec} ]]; then summary true ; exit 0 ; fi
       if [ ! -e "${ass_dir}"/*_phanotate.ffn.gz ]; then
         # Paths
-        gbk_path=$(ls -1 ${ass_dir}/*.gbff.gz)
-        ffn_path=$(echo "${gbk_path}" | sed s/"_genomic.gbff.gz"/"_phanotate.ffn"/)
-        faa_path=$(echo "${gbk_path}" | sed s/"_genomic.gbff.gz"/"_phanotate.faa"/)
-        rm -f ${ass_dir}/*.dmnd
-        acc_name=$(get_base ${gbk_path} | sed s/"_genomic.gbff.gz"/""/)    
-        org_name=$(zgrep -m 1 "SOURCE" ${gbk_path} | cut -d " " -f 7- | tr ' ' '_' | tr '/' '-' | tr ':' '-' | cut -d "(" -f 1 | cut -d "=" -f 1)
-        bash_process="${dir_tmp}/${acc_name}_phanotate.sh"
-        # Construct process bash
-        echo -e "gzip -d -c \"${gbk_path}\" 1>\"${dir_tmp}/${acc_name}.gbk\"" > ${bash_process}
-        echo -e "${extractfeat} -sequence \"${dir_tmp}/${acc_name}.gbk\" -outseq \"${dir_tmp}/${acc_name}.fna\" -type source" >> ${bash_process}
-        echo -e "${phanotate} --outfmt fasta -o \"${ffn_path}\" \"${dir_tmp}/${acc_name}.fna\"" >> ${bash_process}
-        echo -e "sed -i -E s/\"\\[START.+\"/\"phanotate gene \\[${org_name}\\]\"/g \"${ffn_path}\"" >> ${bash_process}
-        echo -e "${transeq} -sequence \"${ffn_path}\" -outseq \"${faa_path}\" -frame 1 -table 11 -trim" >> ${bash_process}
-        echo -e "sed -i s/\"_1 phanotate gene\"/\" phanotate protein\"/g \"${faa_path}\"" >> ${bash_process}
-        echo -e "gzip -f \"${ffn_path}\"" >> ${bash_process}
-        echo -e "gzip -f \"${faa_path}\"" >> ${bash_process}
-        echo -e "rm -f \"${dir_tmp}/${acc_name}.gbk\" \"${dir_tmp}/${acc_name}.fna\"" >> ${bash_process}
-        # Launch process
-        bash ${bash_process} 2>>${log} &
-        arrayPid+=($!)
-        pwait ${threads} ; parallel_progress "phanotate" "${totalMissingPhanotateFFN}"
+        gbk_path=$(ls -1 ${ass_dir}/*.gbff.gz 2>/dev/null) || gbk_path="None"
+        if [ "$gbk_path" != "None" ]; then
+          ffn_path=$(echo "${gbk_path}" | sed s/"_genomic.gbff.gz"/"_phanotate.ffn"/)
+          faa_path=$(echo "${gbk_path}" | sed s/"_genomic.gbff.gz"/"_phanotate.faa"/)
+          rm -f ${ass_dir}/*.dmnd
+          acc_name=$(get_base ${gbk_path} | sed s/"_genomic.gbff.gz"/""/)
+          org_name=$(zgrep -m 1 "SOURCE" ${gbk_path} | cut -d " " -f 7- | tr ' ' '_' | tr '/' '-' | tr ':' '-' | cut -d "(" -f 1 | cut -d "=" -f 1)
+          bash_process="${dir_tmp}/${acc_name}_phanotate.sh"
+          # Construct process bash
+          echo -e "gzip -d -c \"${gbk_path}\" 1>\"${dir_tmp}/${acc_name}.gbk\"" > ${bash_process}
+          echo -e "${extractfeat} -sequence \"${dir_tmp}/${acc_name}.gbk\" -outseq \"${dir_tmp}/${acc_name}.fna\" -type source" >> ${bash_process}
+          echo -e "${phanotate} --outfmt fasta -o \"${ffn_path}\" \"${dir_tmp}/${acc_name}.fna\"" >> ${bash_process}
+          echo -e "sed -i -E s/\"\\[START.+\"/\"phanotate gene \\[${org_name}\\]\"/g \"${ffn_path}\"" >> ${bash_process}
+          echo -e "${transeq} -sequence \"${ffn_path}\" -outseq \"${faa_path}\" -frame 1 -table 11 -trim" >> ${bash_process}
+          echo -e "sed -i s/\"_1 phanotate gene\"/\" phanotate protein\"/g \"${faa_path}\"" >> ${bash_process}
+          echo -e "gzip -f \"${ffn_path}\"" >> ${bash_process}
+          echo -e "gzip -f \"${faa_path}\"" >> ${bash_process}
+          echo -e "rm -f \"${dir_tmp}/${acc_name}.gbk\" \"${dir_tmp}/${acc_name}.fna\"" >> ${bash_process}
+          # Launch process
+          bash ${bash_process} 2>>${log} &
+          arrayPid+=($!)
+          pwait ${threads} ; parallel_progress "phanotate" "${totalMissingPhanotateFFN}"
+        fi
       fi
     done
     # Final wait & progress
@@ -777,12 +789,12 @@ fi
 
 # ***** CheckV ***** # (for phage)
 if [[ ! -z "${elapse_stop_sec}" && $(($SECONDS-start_time)) -ge ${elapse_stop_sec} ]]; then summary true ; exit 0 ; fi
-if [ ${division} == "PHG" ]; then
+if [[ ${division} == "PHG" && ${disable_checkv} == false ]]; then
   echo -ne "| ${colortitle}CheckV      :${NC}"
   title "genomedl | checkv"
   SPINNY_FRAMES=( " check missing                                       |" " check missing .                                     |" " check missing ..                                    |" " check missing ...                                   |" " check missing ....                                  |" " check missing .....                                 |")
   spinny::start
-  totalMissingCheckV=$((${nb_total}-${cpt_rsync_failed}-$(find ${path_db}/GC* -type f -name '*_checkv.tsv' | wc -l)))
+  totalMissingCheckV=$((${nb_total}-${cpt_rsync_failed}-$(find ${path_db}/ -type f -name '*_checkv.tsv' -exec ls -d {} + | wc -l)))
   spinny::stop
   arrayPid=()
   cpt_done=0
@@ -793,25 +805,27 @@ if [ ${division} == "PHG" ]; then
       if [[ ! -z "${elapse_stop_sec}" && $(($SECONDS-start_time)) -ge ${elapse_stop_sec} ]]; then summary true ; exit 0 ; fi
       if [ ! -e "${ass_dir}"/*_checkv.tsv ]; then
         # Paths
-        fna_path=$(ls -1 ${ass_dir}/*.fna.gz)
-        acc_name=$(get_base ${fna_path} | sed s/"_genomic.fna.gz"/""/)
-        path_checkv=${ass_dir}/${acc_name}_checkv.tsv
-        bash_process="${dir_tmp}/${acc_name}_checkv.sh"
-        # Construct process bash
-        echo -e "gzip -d -c \"${fna_path}\" 1>\"${dir_tmp}/${acc_name}.fna\"" > ${bash_process}
-        echo -e "cpt_retry=0" >> ${bash_process}
-        echo -e "while [ ! -f ${path_checkv} ] && [ \$cpt_retry -le $max_retry ]; do" >> ${bash_process}
-        echo -e "  ${checkv} completeness ${dir_tmp}/${acc_name}.fna ${dir_tmp}/${acc_name}_checkV" >> ${bash_process}
-        echo -e "  cp ${dir_tmp}/${acc_name}_checkV/completeness.tsv ${path_checkv}" >> ${bash_process}
-        echo -e "  rm -rf ${dir_tmp}/${acc_name}.fna ${dir_tmp}/${acc_name}_checkV" >> ${bash_process}
-        # Delete results file if NA in 'aai_completeness'
-        echo "  if [ \"\$(tail -n 1 ${path_checkv} | cut -f 5)\" == \"NA\" ]; then rm -f ${path_checkv} ; fi" >> ${bash_process}
-        echo "  ((cpt_retry++))" >> ${bash_process}
-        echo "done" >> ${bash_process}
-        # Launch process
-        bash ${bash_process} 2>>${log} &
-        arrayPid+=($!)
-        pwait ${threads} ; parallel_progress "checkv" "${totalMissingCheckV}"
+        fna_path=$(ls -1 ${ass_dir}/*.fna.gz 2>/dev/null) || fna_path="None"
+        if [ "$fna_path" != "None" ]; then
+          acc_name=$(get_base ${fna_path} | sed s/"_genomic.fna.gz"/""/)
+          path_checkv=${ass_dir}/${acc_name}_checkv.tsv
+          bash_process="${dir_tmp}/${acc_name}_checkv.sh"
+          # Construct process bash
+          echo -e "gzip -d -c \"${fna_path}\" 1>\"${dir_tmp}/${acc_name}.fna\"" > ${bash_process}
+          echo -e "cpt_retry=0" >> ${bash_process}
+          echo -e "while [ ! -f ${path_checkv} ] && [ \$cpt_retry -le $max_retry ]; do" >> ${bash_process}
+          echo -e "  ${checkv} completeness ${dir_tmp}/${acc_name}.fna ${dir_tmp}/${acc_name}_checkV" >> ${bash_process}
+          echo -e "  cp ${dir_tmp}/${acc_name}_checkV/completeness.tsv ${path_checkv}" >> ${bash_process}
+          echo -e "  rm -rf ${dir_tmp}/${acc_name}.fna ${dir_tmp}/${acc_name}_checkV" >> ${bash_process}
+          # Delete results file if NA in 'aai_completeness'
+          echo "  if [ \"\$(tail -n 1 ${path_checkv} | cut -f 5)\" == \"NA\" ]; then rm -f ${path_checkv} ; fi" >> ${bash_process}
+          echo "  ((cpt_retry++))" >> ${bash_process}
+          echo "done" >> ${bash_process}
+          # Launch process
+          bash ${bash_process} 2>>${log} &
+          arrayPid+=($!)
+          pwait ${threads} ; parallel_progress "checkv" "${totalMissingCheckV}"
+        fi
       fi
     done
     # Final wait & progress
@@ -831,7 +845,7 @@ if [ ${division} == "BCT" ]; then
   title "genomedl | prodigal"
   SPINNY_FRAMES=( " check missing                                       |" " check missing .                                     |" " check missing ..                                    |" " check missing ...                                   |" " check missing ....                                  |" " check missing .....                                 |")
   spinny::start
-  totalMissingFAA=$((${nb_total}-${cpt_rsync_failed}-$(find ${path_db}/GC* -type f -name '*_protein.faa.gz' | wc -l)))
+  totalMissingFAA=$((${nb_total}-${cpt_rsync_failed}-$(find ${path_db}/ -type f -name '*_protein.faa.gz' -exec ls -d {} + | wc -l)))
   spinny::stop
   arrayPid=()
   cpt_done=0
@@ -840,31 +854,33 @@ if [ ${division} == "BCT" ]; then
     for ass_dir in ${path_db}/GC*
       do
       if [[ ! -z "${elapse_stop_sec}" && $(($SECONDS-start_time)) -ge ${elapse_stop_sec} ]]; then summary true ; exit 0 ; fi
-      if [ ! -e "${ass_dir}"/*_protein.faa.gz ]; then      
+      if [ ! -e "${ass_dir}"/*_protein.faa.gz ]; then
         # Paths
-        fna_path=$(ls -1 ${ass_dir}/*.fna.gz)
-        gbk_path=$(ls -1 ${ass_dir}/*.gbff.gz)
-        faa_path=$(echo ${gbk_path} | sed s/"_genomic.gbff.gz"/"_protein.faa"/)
-        ffn_path=$(echo ${gbk_path} | sed s/"_genomic.gbff.gz"/"_gene.ffn"/)
-        rm -f ${ass_dir}/*.dmnd
-        acc_name=$(get_base ${gbk_path} | sed s/"_genomic.gbff.gz"/""/)          
-        org_name=$(zgrep -m 1 "SOURCE" ${gbk_path} | cut -d " " -f 7- | tr ' ' '_' | tr '/' '-' | tr ':' '-' | cut -d "(" -f 1 | cut -d "=" -f 1)
-        bash_process="${dir_tmp}/${acc_name}_prodigal.sh"
-        # Construct process bash
-        echo -e "gzip -d -c \"${fna_path}\" 1>\"${dir_tmp}/${acc_name}.fna\"" > ${bash_process}
-        echo -e "${prodigal} -d \"${dir_tmp}/${acc_name}.ffn\" -a \"${dir_tmp}/${acc_name}.faa\" -g 11 -i \"${dir_tmp}/${acc_name}.fna\" -o /dev/null -p single -q" >> ${bash_process}
-        echo -e "sed -E -i s/\"\\s.+\"/\" prodigal protein [${org_name}]\"/g \"${dir_tmp}/${acc_name}.faa\"" >> ${bash_process}
-        echo -e "sed s/\"*\"/\"\"/g \"${dir_tmp}/${acc_name}.faa\" > ${faa_path}" >> ${bash_process}
-        echo -e "gzip -f ${faa_path}" >> ${bash_process}
-        echo -e "if [[ ! -f \"${ffn_path}\" && ! -f \"${ffn_path}.gz\" ]]; then" >> ${bash_process}
-        echo -e "  sed -E s/\"\\s.+\"/\" prodigal gene [${org_name}]\"/g \"${dir_tmp}/${acc_name}.ffn\" > ${ffn_path}" >> ${bash_process}
-        echo -e "  gzip -f ${ffn_path}" >> ${bash_process}
-        echo -e "fi" >> ${bash_process}
-        echo -e "rm -f \"${dir_tmp}/${acc_name}.fna\" \"${dir_tmp}/${acc_name}.ffn\" \"${dir_tmp}/${acc_name}.faa\"" >> ${bash_process}
-        # Launch process
-        bash ${bash_process} 2>>${log} &
-        arrayPid+=($!)
-        pwait ${threads} ; parallel_progress "prodigal" "${totalMissingFAA}"
+        fna_path=$(ls -1 ${ass_dir}/*.fna.gz 2>/dev/null) || fna_path="None"
+        gbk_path=$(ls -1 ${ass_dir}/*.gbff.gz 2>/dev/null) || gbk_path="None"
+        if [[ "$fna_path" != "None" && "$gbk_path" != "None" ]]; then
+          faa_path=$(echo ${gbk_path} | sed s/"_genomic.gbff.gz"/"_protein.faa"/)
+          ffn_path=$(echo ${gbk_path} | sed s/"_genomic.gbff.gz"/"_gene.ffn"/)
+          rm -f ${ass_dir}/*.dmnd
+          acc_name=$(get_base ${gbk_path} | sed s/"_genomic.gbff.gz"/""/)
+          org_name=$(zgrep -m 1 "SOURCE" ${gbk_path} | cut -d " " -f 7- | tr ' ' '_' | tr '/' '-' | tr ':' '-' | cut -d "(" -f 1 | cut -d "=" -f 1)
+          bash_process="${dir_tmp}/${acc_name}_prodigal.sh"
+          # Construct process bash
+          echo -e "gzip -d -c \"${fna_path}\" 1>\"${dir_tmp}/${acc_name}.fna\"" > ${bash_process}
+          echo -e "${prodigal} -d \"${dir_tmp}/${acc_name}.ffn\" -a \"${dir_tmp}/${acc_name}.faa\" -g 11 -i \"${dir_tmp}/${acc_name}.fna\" -o /dev/null -p single -q" >> ${bash_process}
+          echo -e "sed -E -i s/\"\\s.+\"/\" prodigal protein [${org_name}]\"/g \"${dir_tmp}/${acc_name}.faa\"" >> ${bash_process}
+          echo -e "sed s/\"*\"/\"\"/g \"${dir_tmp}/${acc_name}.faa\" > ${faa_path}" >> ${bash_process}
+          echo -e "gzip -f ${faa_path}" >> ${bash_process}
+          echo -e "if [[ ! -f \"${ffn_path}\" && ! -f \"${ffn_path}.gz\" ]]; then" >> ${bash_process}
+          echo -e "  sed -E s/\"\\s.+\"/\" prodigal gene [${org_name}]\"/g \"${dir_tmp}/${acc_name}.ffn\" > ${ffn_path}" >> ${bash_process}
+          echo -e "  gzip -f ${ffn_path}" >> ${bash_process}
+          echo -e "fi" >> ${bash_process}
+          echo -e "rm -f \"${dir_tmp}/${acc_name}.fna\" \"${dir_tmp}/${acc_name}.ffn\" \"${dir_tmp}/${acc_name}.faa\"" >> ${bash_process}
+          # Launch process
+          bash ${bash_process} 2>>${log} &
+          arrayPid+=($!)
+          pwait ${threads} ; parallel_progress "prodigal" "${totalMissingFAA}"
+        fi
       fi
     done
     # Final wait & progress
@@ -883,7 +899,7 @@ if [ ${division} == "PHG" ]; then
   title "genomedl | faa"
   SPINNY_FRAMES=( " check missing                                       |" " check missing .                                     |" " check missing ..                                    |" " check missing ...                                   |" " check missing ....                                  |" " check missing .....                                 |")
   spinny::start
-  totalMissingFAA=$((${nb_total}-${cpt_rsync_failed}-$(find ${path_db}/GC* -type f -name '*_protein.faa.gz' | wc -l)))
+  totalMissingFAA=$((${nb_total}-${cpt_rsync_failed}-$(find ${path_db}/ -type f -name '*_protein.faa.gz' -exec ls -d {} + | wc -l)))
   spinny::stop
   arrayPid=()
   cpt_done=0
@@ -892,26 +908,28 @@ if [ ${division} == "PHG" ]; then
     for ass_dir in ${path_db}/GC*
       do
       if [[ ! -z "${elapse_stop_sec}" && $(($SECONDS-start_time)) -ge ${elapse_stop_sec} ]]; then summary true ; exit 0 ; fi
-      if [ ! -e "${ass_dir}"/*_protein.faa.gz ]; then      
+      if [ ! -e "${ass_dir}"/*_protein.faa.gz ]; then
         # Paths
-        gbk_path=$(ls -1 ${ass_dir}/*.gbff.gz)
-        faa_path=$(echo ${gbk_path} | sed s/"_genomic.gbff.gz"/"_protein.faa"/)
-        ffn_path=$(echo "${gbk_path}" | sed s/"_genomic.gbff.gz"/"_gene.ffn.gz"/)
-        acc_name=$(get_base ${ffn_path} | sed s/"_gene.ffn.gz"/""/)
-        rm -f ${ass_dir}/*.dmnd
-        bash_process="${dir_tmp}/${acc_name}_missingfaa.sh"
-        # Construct process bash
-        echo -e "if [ ! -s \"${ffn_path}\" ]; then" > ${bash_process} # Check if gene file is empty due to bad gene tag in gbff
-        echo -e "  touch ${faa_path}.gz" >> ${bash_process}
-        echo -e "else" >> ${bash_process}
-        echo -e "  gzip -d -c \"${ffn_path}\" 1>\"${dir_tmp}/${acc_name}.ffn\"" >> ${bash_process}
-        echo -e "  ${transeq} -sequence \"${dir_tmp}/${acc_name}.ffn\" -outseq \"${faa_path}\" -frame 1 -table 11 -trim" >> ${bash_process}
-        echo -e "  gzip -f \"${faa_path}\"" >> ${bash_process}
-        echo -e "fi" >> ${bash_process}
-        # Launch process
-        bash ${bash_process} 2>>${log} &
-        arrayPid+=($!)
-        pwait ${threads} ; parallel_progress "missing FAA" "${totalMissingFAA}"        
+        gbk_path=$(ls -1 ${ass_dir}/*.gbff.gz 2>/dev/null) || gbk_path="None"
+        if [ "$gbk_path" != "None" ]; then
+          faa_path=$(echo ${gbk_path} | sed s/"_genomic.gbff.gz"/"_protein.faa"/)
+          ffn_path=$(echo "${gbk_path}" | sed s/"_genomic.gbff.gz"/"_gene.ffn.gz"/)
+          acc_name=$(get_base ${ffn_path} | sed s/"_gene.ffn.gz"/""/)
+          rm -f ${ass_dir}/*.dmnd
+          bash_process="${dir_tmp}/${acc_name}_missingfaa.sh"
+          # Construct process bash
+          echo -e "if [ ! -s \"${ffn_path}\" ]; then" > ${bash_process} # Check if gene file is empty due to bad gene tag in gbff
+          echo -e "  touch ${faa_path}.gz" >> ${bash_process}
+          echo -e "else" >> ${bash_process}
+          echo -e "  gzip -d -c \"${ffn_path}\" 1>\"${dir_tmp}/${acc_name}.ffn\"" >> ${bash_process}
+          echo -e "  ${transeq} -sequence \"${dir_tmp}/${acc_name}.ffn\" -outseq \"${faa_path}\" -frame 1 -table 11 -trim" >> ${bash_process}
+          echo -e "  gzip -f \"${faa_path}\"" >> ${bash_process}
+          echo -e "fi" >> ${bash_process}
+          # Launch process
+          bash ${bash_process} 2>>${log} &
+          arrayPid+=($!)
+          pwait ${threads} ; parallel_progress "missing FAA" "${totalMissingFAA}"
+        fi
       fi
     done
     # Final wait & progress
@@ -929,9 +947,9 @@ title "genomedl | diamonddb"
 SPINNY_FRAMES=( " check missing                                       |" " check missing .                                     |" " check missing ..                                    |" " check missing ...                                   |" " check missing ....                                  |" " check missing .....                                 |")
 spinny::start
 if [ ${division} == "PHG" ]; then
-  totalMissingDMND=$((${nb_total}*2-${cpt_rsync_failed}-$(find ${path_db}/GC* -type f -name '*.dmnd' | wc -l)))
+  totalMissingDMND=$((${nb_total}*2-${cpt_rsync_failed}-$(find ${path_db}/ -type f -name '*.dmnd' -exec ls -d {} + | wc -l)))
 else
-  totalMissingDMND=$((${nb_total}-${cpt_rsync_failed}-$(find ${path_db}/GC* -type f -name '*.dmnd' | wc -l)))
+  totalMissingDMND=$((${nb_total}-${cpt_rsync_failed}-$(find ${path_db}/ -type f -name '*.dmnd' -exec ls -d {} + | wc -l)))
 fi
 spinny::stop
 arrayPid=()
@@ -943,22 +961,26 @@ if [[ "${totalMissingDMND}" != "0" ]]; then
     if [[ ! -z "${elapse_stop_sec}" && $(($SECONDS-start_time)) -ge ${elapse_stop_sec} ]]; then summary true ; exit 0 ; fi
     if [ ! -e "${ass_dir}"/*_protein.dmnd ]; then
       update_dmnd_prot=true
-      faa_path=$(ls -1 ${ass_dir}/*_protein.faa.gz)
-      dmnd_path=$(echo ${faa_path} | sed s/"_protein.faa.gz"/"_protein.dmnd"/)
-      # Launch makedb
-      ${diamond} makedb --in ${faa_path} --db ${dmnd_path} --quiet &
-      arrayPid+=($!)
-      pwait ${threads} ; parallel_progress "diamond makedb" "${totalMissingDMND}"
-    fi
-    if [ ${division} == "PHG" ]; then
-      if [ ! -e "${ass_dir}"/*_phanotate.dmnd ]; then 
-        update_dmnd_phanotate=true
-        faa_path=$(ls -1 ${ass_dir}/*_phanotate.faa.gz)
-        dmnd_path=$(echo ${faa_path} | sed s/"_phanotate.faa.gz"/"_phanotate.dmnd"/)
+      faa_path=$(ls -1 ${ass_dir}/*_protein.faa.gz 2>/dev/null) || faa_path="None"
+      if [ "$faa_path" != "None" ]; then
+        dmnd_path=$(echo ${faa_path} | sed s/"_protein.faa.gz"/"_protein.dmnd"/)
         # Launch makedb
-        ${diamond} makedb --in ${faa_path} --db ${dmnd_path} --quiet
+        ${diamond} makedb --in ${faa_path} --db ${dmnd_path} --quiet &
         arrayPid+=($!)
         pwait ${threads} ; parallel_progress "diamond makedb" "${totalMissingDMND}"
+      fi
+    fi
+    if [ ${division} == "PHG" ]; then
+      if [ ! -e "${ass_dir}"/*_phanotate.dmnd ]; then
+        update_dmnd_phanotate=true
+        faa_path=$(ls -1 ${ass_dir}/*_phanotate.faa.gz 2>/dev/null) || faa_path="None"
+        if [ "$faa_path" != "None" ]; then
+          dmnd_path=$(echo ${faa_path} | sed s/"_phanotate.faa.gz"/"_phanotate.dmnd"/)
+          # Launch makedb
+          ${diamond} makedb --in ${faa_path} --db ${dmnd_path} --quiet
+          arrayPid+=($!)
+          pwait ${threads} ; parallel_progress "diamond makedb" "${totalMissingDMND}"
+        fi
       fi
     fi
   done
