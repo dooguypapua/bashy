@@ -54,6 +54,7 @@ function usage {
     echo "|"$'     V.crassostreae  : "246167"'"                                    |"
     echo "|"$'     V.chagasii      : "170679"'"                                    |"
     echo "|"$'  -l List only mode'"                                                |"
+    echo "|"$'  -b Disable pharokka'"                                              |"
     echo "|"$'  -n Disable checkV'"                                                |"
     echo "|"$'  -t Number of threads'"                                             |"
     echo "|"$'     Default         : 0 (all)'"                                     |"
@@ -74,7 +75,8 @@ function usage {
     echo "|"$'  --checkv'"                                                         |"
     echo "|"$'  --extractfeat'"                                                    |"
     echo "|"$'  --diamond'"                                                        |"
-    echo "|"$'  --phanotate'"                                                      |"
+    echo "|"$'  --pharokka'"                                                       |"
+    echo "|"$'  --pharokka_db'"                                                    |"
     echo "|"$'  --transeq'"                                                        |"
     echo "╰───────────────────────────────────────────────────────────────────╯"
 }
@@ -186,18 +188,20 @@ max_retry=5
 contimeout=5
 all_phage=false
 update_dmnd_prot=false
-update_dmnd_phanotate=false
+update_dmnd_pharokka=false
 start_time=$SECONDS
 cpt_download=0
 cpt_done=0
 cpt_rsync_failed=0
+disable_pharokka=false
 disable_checkv=false
 # Tools paths
 prodigal="prodigal"
 extractfeat="extractfeat"
 diamond="diamond"
-phanotate="phanotate.py"
 transeq="transeq"
+pharokka="/mnt/c/Users/dgoudenege/Tools/pharokka/bin/pharokka.py"
+pharokka_db="/mnt/g/db/pharokka_v1.2.0_db"
 checkv="checkv"
 # Paths & URLs
 taxonomy_efetch_url="https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=taxonomy"
@@ -219,20 +223,22 @@ for arg in "$@"; do
     "--prodigal") set -- "$@" "-p" ;;
     "--extractfeat") set -- "$@" "-e" ;;
     "--diamond") set -- "$@" "-m" ;;
-    "--phanotate") set -- "$@" "-g" ;;
+    "--pharokka") set -- "$@" "-g" ;;
+    "--pharokka_db") set -- "$@" "-x" ;;
     "--transeq") set -- "$@" "-a" ;;
     "--checkv") set -- "$@" "-k" ;;
     "-prodigal") usage ; display_error "Invalid option: -prodigal." false ;;
     "-extractfeat") usage ; display_error "Invalid option: -extractfeat." false ;;
     "-diamond") usage ; display_error "Invalid option: -diamond." false ;;
-    "-phanotate") usage ; display_error "Invalid option: -phanotate." false ;;
+    "-pharokka") usage ; display_error "Invalid option: -pharokka." false ;;
+    "-pharokka_db") usage ; display_error "Invalid option: -pharokka_db." false ;;
     "-transeq") usage ; display_error "Invalid option: -transeq." false ;;
     "-checkv") usage ; display_error "Invalid option: -checkv." false ;;
     *) set -- "$@" "$arg"
   esac
 done
 # list of arguments expected in the input
-optstring=":o:d:i:w:r:t:c:p:e:m:g:s:a:k:flnh"
+optstring=":o:d:i:w:r:t:c:p:e:m:g:x:s:a:k:flnh"
 while getopts ${optstring} arg; do
   case ${arg} in
     h) usage ; exit 0 ;;
@@ -242,6 +248,7 @@ while getopts ${optstring} arg; do
     f) update_rsync=true ;;
     l) list_only=true ;;
     n) disable_checkv=true ;;
+    b) disable_pharokka=true ;;
     w) tmp_folder="${OPTARG}" ;;
     t) threads="${OPTARG}" ;;
     r) max_retry="${OPTARG}" ;;
@@ -250,6 +257,9 @@ while getopts ${optstring} arg; do
     p) prodigal="${OPTARG}" ;;
     e) extractfeat="${OPTARG}" ;;
     m) diamond="${OPTARG}" ;;
+    a) transeq="${OPTARG}" ;;
+    g) pharokka="${OPTARG}" ;;
+    x) pharokka_db="${OPTARG}" ;;
     k) checkv="${OPTARG}" ;;
     :) usage ; display_error "Must supply an argument to -$OPTARG." false ; exit 1 ;;
     ?) usage ; display_error "Invalid option: -${OPTARG}." false ; exit 2 ;;
@@ -283,11 +293,17 @@ if ! command -v zgrep &> /dev/null; then display_error "zgrep not found (must be
 if ! command -v ${extractfeat} &> /dev/null; then display_error "extractfeat [EMBOSS] not found (use \$PATH or specify it)" false ; fi
 if ! command -v ${prodigal} &> /dev/null; then display_error "prodigal not found (use \$PATH or specify it)" false ; fi
 if ! command -v ${diamond} &> /dev/null; then display_error "diamond not found (use \$PATH or specify it)" false ; fi
-if ! command -v ${phanotate} &> /dev/null; then display_error "phanotate not found (use \$PATH or specify it)" false ; fi
 if ! command -v ${transeq} &> /dev/null; then display_error "transeq not found (use \$PATH or specify it)" false ; fi
 if ! command -v ${checkv} &> /dev/null; then display_error "checkv not found (use \$PATH or specify it)" false ; fi
 if [ "$CHECKVDB" = "" ]; then display_error "checkv required a reference database path variable \$CHECKVDB" false ; fi
 if [[ ! -d $CHECKVDB ]]; then display_error "reference database path defined in \$CHECKVDB not found" false ; fi
+# Check pharokka with conda
+if ! command -v conda &> /dev/null; then display_error "conda not found (must be in path)" false ; fi
+CONDA_BASE=$(conda info --base)
+source "$CONDA_BASE/etc/profile.d/conda.sh"
+if ! conda activate pharokka_env >/dev/null 2>&1; then display_error "Unable to activate pharokka" false ; fi
+if ! command -v ${pharokka} &> /dev/null; then display_error "pharokka not found (use \$PATH or specify it)" false ; fi
+if [ ! -d "$pharokka_db" ]; then display_error "pharokka database not found (specify it)" false ; fi
 # Data & Output folder
 if [ "${division}" == "BCT" ]; then summary_url="ftp.ncbi.nlm.nih.gov/genomes/genbank/bacteria/assembly_summary.txt" ; division_title="bacteria" ; fi
 if [ "${division}" == "PHG" ]; then summary_url="ftp.ncbi.nlm.nih.gov/genomes/genbank/viral/assembly_summary.txt" ; division_title="phage" ; fi
@@ -316,6 +332,7 @@ taxidlineage_dmp="${dir_tmp}/taxidlineage.dmp"
 fullnamelineage_dmp="${dir_tmp}/fullnamelineage.dmp"
 nodes_dmp="${dir_tmp}/nodes.dmp"
 summary_sorted="${dir_tmp}/assembly_summary_sorted.txt"
+
 
 
 
@@ -360,7 +377,10 @@ else
     echo -ne "| ${colortitle}Update mode${NC} : conservative" ; rjust "27" true
   fi
 fi
-# Dsiplay checkV Unable/disable
+# Display checkV/Pharokka Unable/disable
+if [ ${disable_pharokka} = true ]; then
+  echo -ne "| ${colortitle}No pharokka ${NC}: true" ; rjust "19" true
+fi
 if [ ${disable_checkv} = true ]; then
   echo -ne "| ${colortitle}No checkV ${NC}  : true" ; rjust "19" true
 fi
@@ -657,7 +677,7 @@ else
       if [ ! -s ${rsync_out_dl} ]; then
         ((cpt_download++))
         # remove postprocessing file if updated
-        rm -f ${path_db_acc}/*.ffn ${path_db_acc}/*.dmnd ${path_db_acc}/*phanotate*
+        rm -f ${path_db_acc}/*.ffn ${path_db_acc}/*.dmnd ${path_db_acc}/*pharokka*
       fi
       else
         progress ${percent_done} "${acc_name}" ${colorterm}
@@ -734,55 +754,52 @@ else
   echo -ne " any missing gene file" ; rjust 36 false ; echo -e ""
 fi
 
-# ***** Phanotate ***** # (for phage)
+# ***** Pharokka ***** # (for phage)
 if [[ ! -z "${elapse_stop_sec}" && $(($SECONDS-start_time)) -ge ${elapse_stop_sec} ]]; then summary true ; exit 0 ; fi
-if [ ${division} == "PHG" ]; then
-  echo -ne "| ${colortitle}Phanotate   :${NC}"
-  title "genomedl | phanotate"
+if [[ ${division} == "PHG" && ${disable_pharokka} == false ]]; then
+  echo -ne "| ${colortitle}Pharokka    :${NC}"
+  title "genomedl | pharokka"
   SPINNY_FRAMES=( " check missing                                       |" " check missing .                                     |" " check missing ..                                    |" " check missing ...                                   |" " check missing ....                                  |" " check missing .....                                 |")
   spinny::start
-  totalMissingPhanotateFFN=$((${nb_total}-${cpt_rsync_failed}-$(find ${path_db}/ -type f -name '*_phanotate.ffn.gz' -exec ls -d {} + | wc -l)))
+  totalMissingPharokka=$((${nb_total}-${cpt_rsync_failed}-$(find ${path_db}/ -type d -name '*_pharokka' -exec ls -d {} + | wc -l)))
   spinny::stop
   arrayPid=()
   cpt_done=0
-  if [[ "${totalMissingPhanotateFFN}" != "0" ]]; then
-    echo -ne " ${totalMissingPhanotateFFN} missing phanotate files" ; rjust $((39+${#totalMissingPhanotateFFN})) true
+  if [[ "${totalMissingPharokka}" != "0" ]]; then
+    echo -ne " ${totalMissingPharokka} missing pharokka files" ; rjust $((38+${#totalMissingPharokka})) true
     for ass_dir in ${path_db}/GC*
       do
       if [[ ! -z "${elapse_stop_sec}" && $(($SECONDS-start_time)) -ge ${elapse_stop_sec} ]]; then summary true ; exit 0 ; fi
-      if [ ! -e "${ass_dir}"/*_phanotate.ffn.gz ]; then
+      if [ ! -d "${ass_dir}"/*_pharokka ]; then
         # Paths
-        gbk_path=$(ls -1 ${ass_dir}/*.gbff.gz 2>/dev/null) || gbk_path="None"
-        if [ "$gbk_path" != "None" ]; then
-          ffn_path=$(echo "${gbk_path}" | sed s/"_genomic.gbff.gz"/"_phanotate.ffn"/)
-          faa_path=$(echo "${gbk_path}" | sed s/"_genomic.gbff.gz"/"_phanotate.faa"/)
-          rm -f ${ass_dir}/*.dmnd
-          acc_name=$(get_base ${gbk_path} | sed s/"_genomic.gbff.gz"/""/)
-          org_name=$(zgrep -m 1 "SOURCE" ${gbk_path} | cut -d " " -f 7- | tr ' ' '_' | tr '/' '-' | tr ':' '-' | cut -d "(" -f 1 | cut -d "=" -f 1)
-          bash_process="${dir_tmp}/${acc_name}_phanotate.sh"
+        fna_path=$(ls -1 ${ass_dir}/*.fna.gz 2>/dev/null) || fna_path="None"
+        if [ "$fna_path" != "None" ]; then
+          pharokka_outdir=$(echo "${fna_path}" | sed s/"_genomic.fna.gz"/"_pharokka"/)
+          acc_name=$(get_base ${fna_path} | sed s/"_genomic.fna.gz"/""/)
+          org_name=$(zgrep -m 1 "SOURCE" ${fna_path} | cut -d " " -f 7- | tr ' ' '_' | tr '/' '-' | tr ':' '-' | cut -d "(" -f 1 | cut -d "=" -f 1)
+          lt_prefix="P$(echo $acc_name | cut -d "_" -f 2 | cut -d "." -f 1)"
+          bash_process="${dir_tmp}/${acc_name}_pharokka.sh"
           # Construct process bash
-          echo -e "gzip -d -c \"${gbk_path}\" 1>\"${dir_tmp}/${acc_name}.gbk\"" > ${bash_process}
-          echo -e "${extractfeat} -sequence \"${dir_tmp}/${acc_name}.gbk\" -outseq \"${dir_tmp}/${acc_name}.fna\" -type source" >> ${bash_process}
-          echo -e "${phanotate} --outfmt fasta -o \"${ffn_path}\" \"${dir_tmp}/${acc_name}.fna\"" >> ${bash_process}
-          echo -e "sed -i -E s/\"\\[START.+\"/\"phanotate gene \\[${org_name}\\]\"/g \"${ffn_path}\"" >> ${bash_process}
-          echo -e "${transeq} -sequence \"${ffn_path}\" -outseq \"${faa_path}\" -frame 1 -table 11 -trim" >> ${bash_process}
-          echo -e "sed -i s/\"_1 phanotate gene\"/\" phanotate protein\"/g \"${faa_path}\"" >> ${bash_process}
-          echo -e "gzip -f \"${ffn_path}\"" >> ${bash_process}
-          echo -e "gzip -f \"${faa_path}\"" >> ${bash_process}
-          echo -e "rm -f \"${dir_tmp}/${acc_name}.gbk\" \"${dir_tmp}/${acc_name}.fna\"" >> ${bash_process}
+          echo -e "gzip -d -c \"${fna_path}\" 1>\"${dir_tmp}/${acc_name}.fna\"" > ${bash_process}
+          echo -ne "${pharokka} -i \"${dir_tmp}/${acc_name}.fna\" -o \"${pharokka_outdir}\" " >> ${bash_process}
+          echo -ne "-d \"${pharokka_db}\" -t 2 -g phanotate -e 1E-03 " >> ${bash_process}
+          echo -e "-p \"${acc_name}\" -l \"${lt_prefix}\"" >> ${bash_process}
+          echo -e "mv \"${pharokka_outdir}/phanotate.ffn\" \"${pharokka_outdir}/${acc_name}.ffn\"" >> ${bash_process}
+          echo -e "mv \"${pharokka_outdir}/phanotate.faa\" \"${pharokka_outdir}/${acc_name}.faa\"" >> ${bash_process}
+          echo -e "rm -f \"${dir_tmp}/${acc_name}.fna\"" >> ${bash_process}
           # Launch process
-          bash ${bash_process} 2>>${log} &
+          bash ${bash_process} >>${log} 2>&1 &
           arrayPid+=($!)
-          pwait ${threads} ; parallel_progress "phanotate" "${totalMissingPhanotateFFN}"
+          pwait ${threads} ; parallel_progress "pharokka" "${totalMissingPharokka}"
         fi
       fi
     done
     # Final wait & progress
-    while [ $(jobs -p | wc -l) -gt 1 ]; do parallel_progress "phanotate" ${totalMissingPhanotateFFN} ; sleep 1 ; done
-    rm -f "${dir_tmp}/*_phanotate.sh"
+    while [ $(jobs -p | wc -l) -gt 1 ]; do parallel_progress "pharokka" ${totalMissingPharokka} ; sleep 1 ; done
+    rm -f "${dir_tmp}/*_pharokka.sh"
     echo -e '\e[1A\e[K'
   else
-    echo -ne " any missing phanotate file" ; rjust 41 false ; echo -e ""
+    echo -ne " any missing pharokka file" ; rjust 40 false ; echo -e ""
   fi
 fi
 
@@ -941,15 +958,14 @@ if [ ${division} == "PHG" ]; then
   fi
 fi
 
-# ***** DIAMOND makedb ***** # (for phage two dmnd, original and phanotate)
+# ***** DIAMOND makedb ***** #
 echo -ne "| ${colortitle}DiamondDB   :${NC}"
 title "genomedl | diamonddb"
 SPINNY_FRAMES=( " check missing                                       |" " check missing .                                     |" " check missing ..                                    |" " check missing ...                                   |" " check missing ....                                  |" " check missing .....                                 |")
 spinny::start
-if [ ${division} == "PHG" ]; then
-  totalMissingDMND=$((${nb_total}*2-${cpt_rsync_failed}-$(find ${path_db}/ -type f -name '*.dmnd' -exec ls -d {} + | wc -l)))
-else
-  totalMissingDMND=$((${nb_total}-${cpt_rsync_failed}-$(find ${path_db}/ -type f -name '*.dmnd' -exec ls -d {} + | wc -l)))
+totalMissingDMND=$((${nb_total}-${cpt_rsync_failed}-$(find ${path_db}/ -type f -name '*.dmnd' -exec ls -d {} + | wc -l)))
+if [[ ${division} == "PHG" && ${disable_pharokka} == false ]]; then
+  totalMissingDMND=$((totalMissingDMND + $((${nb_total}-${cpt_rsync_failed}-$(find ${path_db}/*/*_pharokka/ -type f -name '*.dmnd' -exec ls -d {} + | wc -l)))))
 fi
 spinny::stop
 arrayPid=()
@@ -970,12 +986,12 @@ if [[ "${totalMissingDMND}" != "0" ]]; then
         pwait ${threads} ; parallel_progress "diamond makedb" "${totalMissingDMND}"
       fi
     fi
-    if [ ${division} == "PHG" ]; then
-      if [ ! -e "${ass_dir}"/*_phanotate.dmnd ]; then
-        update_dmnd_phanotate=true
-        faa_path=$(ls -1 ${ass_dir}/*_phanotate.faa.gz 2>/dev/null) || faa_path="None"
+    if [[ ${division} == "PHG" && ${disable_pharokka} == false ]]; then
+      if [ ! -e "${ass_dir}"/*_pharokka/*.dmnd ]; then
+        update_dmnd_pharokka=true
+        faa_path=$(ls -1 ${ass_dir}/*_pharokka/${ass_dir}*.faa 2>/dev/null) || faa_path="None"
         if [ "$faa_path" != "None" ]; then
-          dmnd_path=$(echo ${faa_path} | sed s/"_phanotate.faa.gz"/"_phanotate.dmnd"/)
+          dmnd_path=$(echo ${faa_path} | sed s/".faa"/".dmnd"/)
           # Launch makedb
           ${diamond} makedb --in ${faa_path} --db ${dmnd_path} --quiet
           arrayPid+=($!)
@@ -991,7 +1007,7 @@ else
   echo -ne " any missing diamond files" ; rjust 40 false ; echo -e ""
 fi
 
-# ***** DIAMONDDB merge ***** # (for phage two dmnd, original and phanotate)
+# ***** DIAMONDDB merge ***** #
 # For *_protein.faa.gz
 if [[ ${update_dmnd_prot} = true || ! -s ${path_db}/all_protein.dmnd ]]; then
   # Merging all protein.faa.gz
@@ -1017,31 +1033,31 @@ if [[ ${update_dmnd_prot} = true || ! -s ${path_db}/all_protein.dmnd ]]; then
   spinny::stop
   echo -ne " all protein" ; rjust 26 true
 fi
-# For *_phanotate.faa.gz
-if [[ ${division} == "PHG" ]]; then
-  if [[ ${update_dmnd_phanotate} = true || ! -s ${path_db}/all_phanotate.dmnd ]]; then
-    # Merging all phanotate.faa.gz
-    echo -ne "| ${colortitle}Merging     :${NC} ${nb_total} phanotate dmnd" ; rjust $((30+${#nb_total})) true
-    title "genomedl | merging phan."
+# For pharokka
+if [[ ${division} == "PHG" && ${disable_pharokka} == false ]]; then
+  if [[ ${update_dmnd_pharokka} = true || ! -s ${path_db}/all_pharokka.dmnd ]]; then
+    # Merging all pharokka.faa
+    echo -ne "| ${colortitle}Merging     :${NC} ${nb_total} pharokka dmnd" ; rjust $((29+${#nb_total})) true
+    title "genomedl | merging pharokka"
     cpt_done=0
     for ass_dir in ${path_db}/GC*
       do
       acc_name=$(get_base ${ass_dir})
-      faa_path=$(ls -1 ${ass_dir}/*_phanotate.faa.gz 2>/dev/null || echo "None")
-      if [ "${faa_path}" != "None" ]; then cat ${faa_path} >> ${dir_tmp}/all_phanotate.faa.gz ; fi
+      faa_path=$(ls -1 ${ass_dir}/${ass_dir}*_pharokka.faa 2>/dev/null || echo "None")
+      if [ "${faa_path}" != "None" ]; then cat ${faa_path} >> ${dir_tmp}/all_pharokka.faa ; fi
       ((cpt_done++))
       percent_done=$(( ${cpt_done}*100/${nb_total} ))
       progress ${percent_done} "${acc_name:0:15}" ${colorterm}
     done
     echo -e '\e[1A\e[K'
-    # Makedb for merge phanotate
+    # Makedb for merge pharokka
     echo -ne "| ${colortitle}DiamondDB   :${NC}"
     title "genomedl | diamonddb phan."
-    SPINNY_FRAMES=( " all phanotate                                       |" " all phanotate .                                     |" " all phanotate ..                                    |" " all phanotate ...                                   |" " all phanotate ....                                  |" " all phanotate .....                                 |")
+    SPINNY_FRAMES=( " all pharokka                                        |" " all pharokka .                                      |" " all pharokka ..                                     |" " all pharokka ...                                    |" " all pharokka ....                                   |" " all pharokka .....                                 |")
     spinny::start
-    ${diamond} makedb --in ${dir_tmp}/all_phanotate.faa.gz --db ${path_db}/all_phanotate.dmnd --quiet
+    ${diamond} makedb --in ${dir_tmp}/all_pharokka.faa --db ${path_db}/all_pharokka.dmnd --quiet
     spinny::stop
-    echo -ne " all phanotate" ; rjust 28 true
+    echo -ne " all pharokka" ; rjust 28 true
   fi
 fi
 # End postprocessing
