@@ -190,7 +190,7 @@ lstLines = IN.read().split("\n")
 IN.close()
 dicoSummary = {}
 for line in lstLines:
-    if line != "" and line[0] != "#":
+    if line != "" and line[0] != "#" :
         splitLine = line.split("\t")
         if splitLine[19] != "na":
             if splitLine[17] != "na": fullName = os.path.basename(splitLine[19]).replace(splitLine[0], splitLine[17])
@@ -207,10 +207,12 @@ for line in lstLines:
                 dicoSummary[fullName]['org_name'] += "_"+isolate_name
             dicoSummary[fullName]['taxid'] = splitLine[5]
             dicoSummary[fullName]['sp_taxid'] = splitLine[6]
-            try: dicoSummary[fullName]['lineage'] = "; ".join(list(ncbi.get_taxid_translator(ncbi.get_lineage(int(dicoSummary[fullName]['taxid']))).values()))
-            except: dicoSummary[fullName]['lineage'] = "None"
-            try: dicoSummary[fullName]['sp_lineage'] = "; ".join(list(ncbi.get_taxid_translator(ncbi.get_lineage(int(dicoSummary[fullName]['sp_taxid']))).values()))
-            except: dicoSummary[fullName]['sp_lineage'] = "None"
+            dicoSummary[fullName]['dico_sp_lineage'] = OrderedDict([("superkingdom",""),("clade",""),("kingdom",""),("phylum",""),("class",""),("order",""),("family",""),("subfamily",""),("genus",""),("species","")])
+            for lineageID in ncbi.get_lineage(int(dicoSummary[fullName]['sp_taxid'])):
+                rank = list(ncbi.get_rank([lineageID]).values())[0]
+                if rank != "no rank":
+                    lineage = list(ncbi.get_taxid_translator([lineageID]).values())[0]
+                    dicoSummary[fullName]['dico_sp_lineage'][rank] = lineage
 with open(pathJSON, 'w') as outfile: json.dump(dicoSummary, outfile, indent=4)
 EOF
 )
