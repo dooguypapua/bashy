@@ -169,6 +169,7 @@ function make_python_summary_script {
 import sys, json
 from ete3 import NCBITaxa
 from contextlib import redirect_stdout, redirect_stderr
+from collections import OrderedDict
 pathDB="${1}"
 update="${2}"
 pathSUMMARY=pathDB+"/assembly_summary_taxids.txt"
@@ -351,6 +352,10 @@ if ! command -v ${transeq} &> /dev/null; then display_error "transeq not found (
 if ! command -v ${checkv} &> /dev/null; then display_error "checkv not found (use \$PATH or specify it)" false ; fi
 if [ "$CHECKVDB" = "" ]; then display_error "checkv required a reference database path variable \$CHECKVDB" false ; fi
 if [[ ! -d $CHECKVDB ]]; then display_error "reference database path defined in \$CHECKVDB not found" false ; fi
+# Check python3 and required packages
+if ! command -v python3 &> /dev/null; then display_error "python3 not found (use \$PATH)" false ; fi
+if ! python -c "import contextlib" &> /dev/null; then display_error "contextlib python package not found" false ; fi
+if ! python -c "import ete3" &> /dev/null; then display_error "ete3 python package not found" false ; fi
 # Check pharokka with conda
 if ! command -v conda &> /dev/null; then display_error "conda not found (must be in path)" false ; fi
 CONDA_BASE=$(conda info --base)
