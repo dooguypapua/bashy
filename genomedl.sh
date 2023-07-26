@@ -164,6 +164,58 @@ function pwait() {
 }
 
 
+function make_python_summary_script {
+  PYTHON_SCRIPT=$(cat <<EOF
+import sys, json
+from ete3 import NCBITaxa
+from contextlib import redirect_stdout, redirect_stderr
+pathDB="${1}"
+update="${2}"
+pathSUMMARY=pathDB+"/assembly_summary_taxids.txt"
+pathJSON=pathDB+"/assembly_summary.json"
+pathSQLITE=pathDB+"/taxdump.sqlite"
+pathTAXDUMP=pathDB+"/taxdump.tar.gz"
+pathLOG=pathDB+"/genomedl.log"
+# Load ete3 NCBITaxa database (quiet)
+if update == "false":
+    ncbi = NCBITaxa(pathSQLITE)
+# Update ete3 NCBITaxa database (quiet)
+else:
+    with redirect_stdout(open(pathLOG, "a")) as f:
+        with redirect_stderr(f):
+            ncbi = NCBITaxa(pathSQLITE,pathTAXDUMP)
+# Read assembly_summary_taxids
+IN = open(pathSUMMARY, 'r')
+lstLines = IN.read().split("\n")
+IN.close()
+dicoSummary = {}
+for line in lstLines:
+    if line != "" and line[0] != "#":
+        splitLine = line.split("\t")
+        if splitLine[19] != "na":
+            if splitLine[17] != "na": fullName = os.path.basename(splitLine[19]).replace(splitLine[0], splitLine[17])
+            else: fullName = os.path.basename(splitLine[19])
+            dicoSummary[fullName] = {}
+            dicoSummary[fullName]['acc_name'] = splitLine[0]
+            dicoSummary[fullName]['asm_name'] = splitLine[15].replace(".fasta", "").replace(" ","_")
+            dicoSummary[fullName]['org_name'] = splitLine[7]
+            infra_name = splitLine[8].replace("strain=", "")
+            isolate_name = splitLine[9]
+            if infra_name != "" and  infra_name != "na" and  infra_name not in dicoSummary[fullName]['org_name']:
+                dicoSummary[fullName]['org_name'] += "_"+infra_name
+            if isolate_name != "" and  isolate_name != "na" and  isolate_name not in dicoSummary[fullName]['org_name']:
+                dicoSummary[fullName]['org_name'] += "_"+isolate_name
+            dicoSummary[fullName]['taxid'] = splitLine[5]
+            dicoSummary[fullName]['sp_taxid'] = splitLine[6]
+            try: dicoSummary[fullName]['lineage'] = "; ".join(list(ncbi.get_taxid_translator(ncbi.get_lineage(int(dicoSummary[fullName]['taxid']))).values()))
+            except: dicoSummary[fullName]['lineage'] = "None"
+            try: dicoSummary[fullName]['sp_lineage'] = "; ".join(list(ncbi.get_taxid_translator(ncbi.get_lineage(int(dicoSummary[fullName]['sp_taxid']))).values()))
+            except: dicoSummary[fullName]['sp_lineage'] = "None"
+with open(pathJSON, 'w') as outfile: json.dump(dicoSummary, outfile, indent=4)
+EOF
+)
+  echo "${PYTHON_SCRIPT}" > ${1}
+}
 
 
 
@@ -592,53 +644,7 @@ spinny::stop
 if [[ ${update_summary} = true || ! -f ${path_db}/assembly_summary.json ]]; then
   SPINNY_FRAMES=( " create assembly_summary JSON                        |" " create assembly_summary JSON .                      |" " create assembly_summary JSON ..                     |" " create assembly_summary JSON ...                    |" " create assembly_summary JSON ....                   |" " create assembly_summary JSON .....                  |")
   spinny::start
-  # reduce fulllineage to speed grep
-  grep -v "#" /mnt/g/db/straboDB/assembly_summary_taxids.txt | cut -f 6 > ${dir_tmp}/taxid.lst
-  grep -v "#" /mnt/g/db/straboDB/assembly_summary_taxids.txt | cut -f 7 >> ${dir_tmp}/taxid.lst
-  cat ${dir_tmp}/taxid.lst | sort -u > ${dir_tmp}/taxid_sorted.lst
-  grep -f ${dir_tmp}/taxid_sorted.lst ${fullnamelineage_dmp} > ${dir_tmp}/fullnamelineage_reduced.dmp
-  IFS='|'
-  echo -ne "{" > ${path_db}/assembly_summary.json
-  while read -a arrLine; do
-    if [[ ${arrLine[0]:0:1} != "#" ]]; then
-      acc_name=${arrLine[0]}
-      taxid=${arrLine[5]}
-      sp_taxid=${arrLine[6]}
-      org_name=${arrLine[7]}
-      infra_name=$(echo ${arrLine[8]} | sed s/"strain="/""/)
-      isolate_name=${arrLine[9]}
-      asm_name=$(echo ${arrLine[15]} | sed s/".fasta"/""/)
-      format_name=${org_name}
-      if [[ $taxid != "" ]]; then
-        lineage=$(grep -E "^${taxid}\s" ${dir_tmp}/fullnamelineage_reduced.dmp | cut -f 5)
-      else
-        lineage=""
-      fi
-      if [[ $sp_taxid != "" ]]; then
-        lineage_sp=$(grep -E "^${sp_taxid}\s" ${dir_tmp}/fullnamelineage_reduced.dmp | cut -f 5)
-      else
-        lineage_sp=""
-      fi
-      if [[ $infra_name != "" && "$format_name" != *"$infra_name"* ]]
-        then format_name="${format_name}_$infra_name"
-      fi
-      if [[ $isolate_name != "" && "$format_name" != *"$isolate_name"* ]]
-        then format_name="${format_name}_$isolate_name"
-      fi
-      JSON="\n\"${acc_name}\":"
-      JSON="${JSON}\t{\n"
-      JSON="${JSON}\t\"taxid\":\"${taxid}\",\n"
-      JSON="${JSON}\t\"sp_taxid\":\"${sp_taxid}\",\n"
-      JSON="${JSON}\t\"lineage\":\"${lineage}\",\n"
-      JSON="${JSON}\t\"sp_lineage\":\"${lineage_sp}\",\n"
-      JSON="${JSON}\t\"org_name\":\"${format_name}\",\n"
-      JSON="${JSON}\t\"asm_name\":\"${asm_name}\"\n"
-      JSON="${JSON}\t},"
-      echo -ne ${JSON} >> ${path_db}/assembly_summary.json
-    fi
-  done < <(cat ${path_db}/assembly_summary_taxids.txt | tr '\t' '|')
-  truncate -s-1 ${path_db}/assembly_summary.json
-  echo -ne "\n}\n" >> ${path_db}/assembly_summary.json
+  make_python_summary_script ${path_db} ${update_summary}
   spinny::stop
 fi
 echo -ne " done" ; rjust 19 true
