@@ -206,6 +206,9 @@ for line in lstLines:
                 dicoSummary[fullName]['org_name'] += "_"+infra_name
             if isolate_name != "" and  isolate_name != "na" and  isolate_name not in dicoSummary[fullName]['org_name']:
                 dicoSummary[fullName]['org_name'] += "_"+isolate_name
+            dicoSummary[fullName]['assembly_level'] = splitLine[11]
+            dicoSummary[fullName]['genome_rep'] = splitLine[13]
+            dicoSummary[fullName]['excluded'] = splitLine[20]
             dicoSummary[fullName]['taxid'] = splitLine[5]
             dicoSummary[fullName]['sp_taxid'] = splitLine[6]
             dicoSummary[fullName]['dico_sp_lineage'] = OrderedDict([("superkingdom",""),("clade",""),("kingdom",""),("phylum",""),("class",""),("order",""),("family",""),("subfamily",""),("genus",""),("species","")])

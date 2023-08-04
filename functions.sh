@@ -26,7 +26,7 @@ function border () {
 function title () {
   export PS1='${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
   text=${1}
-  justify=$((39-${#text}))
+  justify=$((29-${#text}))
   if (( $justify % 2 == 0 ))
     then
     ljust=$(($justify / 2))
