@@ -121,7 +121,7 @@ echo -e "${dcolor}\nDISK USAGE${NC}"
 # disk usage function
 array_disk=("/")
 for disk in /mnt/* ; do
-  if [[ ! ${disk} == *wsl* ]]; then
+  if [[ -d $disk && ! ${disk} == *wsl* ]]; then
     array_disk+=("${disk}")
   fi
 done
