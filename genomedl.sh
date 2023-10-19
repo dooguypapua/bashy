@@ -164,9 +164,9 @@ function pwait() {
 }
 
 
-function make_python_summary_script {
+function make_python_summary_script() {
   PYTHON_SCRIPT=$(cat <<EOF
-import sys, json
+import os, sys, json
 from ete3 import NCBITaxa
 from contextlib import redirect_stdout, redirect_stderr
 from collections import OrderedDict
@@ -220,9 +220,31 @@ for line in lstLines:
 with open(pathJSON, 'w') as outfile: json.dump(dicoSummary, outfile, indent=4)
 EOF
 )
-  echo "${PYTHON_SCRIPT}" > ${1}
+  echo "${PYTHON_SCRIPT}" > "${3}/make_summary.py"
+  python "${3}/make_summary.py" 2>>${4}
 }
 
+function scandir() {
+  scan_folder="${1}"
+  output_file="${2}"
+  threads=$(($(nproc) - 2))  
+  temp_file=$(mktemp)
+  rm -f $output_file
+  # Get files list
+  parallel -j $threads ls -RU1 ::: $scan_folder > $temp_file
+  # Convert to absolute path
+  current_path=""
+  while IFS= read -r line; do
+    if [[ -n "$line" ]]; then
+      if [[ $line == *":" ]]; then
+        current_path="${line%:}"  # Supprime le dernier caractère ":"
+      elif [ -n "$current_path" ]; then
+        echo "${current_path}/${line}" >> "$output_file"
+      fi
+    fi
+  done < "$temp_file"
+  rm -f temp_file
+}
 
 
 # ************************************************************************* #
@@ -654,10 +676,12 @@ spinny::stop
 if [[ ${update_summary} = true || ! -f ${path_db}/assembly_summary.json ]]; then
   SPINNY_FRAMES=( " create assembly_summary JSON                        |" " create assembly_summary JSON .                      |" " create assembly_summary JSON ..                     |" " create assembly_summary JSON ...                    |" " create assembly_summary JSON ....                   |" " create assembly_summary JSON .....                  |")
   spinny::start
-  make_python_summary_script ${path_db} ${update_summary}
+  make_python_summary_script ${path_db} ${update_summary} ${dir_tmp} ${log}
   spinny::stop
 fi
 echo -ne " done" ; rjust 19 true
+make_python_summary_script ${path_db} ${update_summary} ${dir_tmp} ${log}
+exit 0
 
 # ***** DELETE replaced/removed genomes ***** #
 if [[ ${nb_removed} -eq 0 ]]; then
@@ -803,6 +827,7 @@ if [[ ${division} == "PHG" && ${disable_pharokka} == false ]]; then
           echo -e "mv \"${pharokka_outdir}/phanotate.ffn\" \"${pharokka_outdir}/${acc_name}.ffn\"" >> ${bash_process}
           echo -e "mv \"${pharokka_outdir}/phanotate.faa\" \"${pharokka_outdir}/${acc_name}.faa\"" >> ${bash_process}
           echo -e "rm -f \"${dir_tmp}/${acc_name}.fna\"" >> ${bash_process}
+          echo -e "rm -rf \"${pharokka_outdir}/CARD*\" \"${pharokka_outdir}/mmseqs\" \"${pharokka_outdir}/tmp_dir\" \"${pharokka_outdir}/vfdb\"" >> ${bash_process}
           # Launch process
           bash ${bash_process} >>${log} 2>&1 &
           arrayPid+=($!)
@@ -864,7 +889,7 @@ if [[ ${division} == "PHG" && ${disable_checkv} == false ]]; then
     # Final wait & progress
     while [ $(jobs -p | wc -l) -gt 1 ]; do parallel_progress "checkv" ${totalMissingCheckV} ; sleep 1 ; done
     rm -f "${dir_tmp}/*_checkv.sh"
-    echo -e '\e[1A\e[K'
+    echo -e 'n\e[1A\e[K'
   else
     echo -ne " any missing checkv file" ; rjust 38 false ; echo -e ""
   fi
@@ -981,7 +1006,7 @@ SPINNY_FRAMES=( " check missing                                       |" " check
 spinny::start
 totalMissingDMND=$((${nb_total}-${cpt_rsync_failed}-$(find ${path_db}/ -type f -name '*.dmnd' -exec ls -d {} + | wc -l)))
 if [[ ${division} == "PHG" && ${disable_pharokka} == false ]]; then
-  totalMissingDMND=$((totalMissingDMND + $((${nb_total}-${cpt_rsync_failed}-$(find ${path_db}/*/*_pharokka/ -type f -name '*.dmnd' -exec ls -d {} + | wc -l)))))
+  totalMissingDMND=$((totalMissingDMND + $((${nb_total}-${cpt_rsync_failed}-$(find /mnt/g/db/phageDB/ -maxdepth 3 -type f -name '*.dmnd' -exec ls -d {} + | grep "pharokka" | wc -l)))))
 fi
 spinny::stop
 arrayPid=()
@@ -1009,6 +1034,7 @@ if [[ "${totalMissingDMND}" != "0" ]]; then
         if [ "$faa_path" != "None" ]; then
           dmnd_path=$(echo ${faa_path} | sed s/".faa"/".dmnd"/)
           # Launch makedb
+          echo "${diamond} makedb --in ${faa_path} --db ${dmnd_path}"
           ${diamond} makedb --in ${faa_path} --db ${dmnd_path} --quiet
           arrayPid+=($!)
           pwait ${threads} ; parallel_progress "diamond makedb" "${totalMissingDMND}"
@@ -1018,7 +1044,7 @@ if [[ "${totalMissingDMND}" != "0" ]]; then
   done
   # Final wait & progress
   while [ $(jobs -p | wc -l) -gt 1 ]; do parallel_progress "diamond makedb" ${totalMissingDMND} ; sleep 1 ; done
-  echo -e '\e[1A\e[K'
+  echo -ne '\e[1A\e[K'
 else
   echo -ne " any missing diamond files" ; rjust 40 false ; echo -e ""
 fi
@@ -1039,7 +1065,7 @@ if [[ ${update_dmnd_prot} = true || ! -s ${path_db}/all_protein.dmnd ]]; then
     percent_done=$(( ${cpt_done}*100/${nb_total} ))
     progress ${percent_done} "${acc_name:0:15}" ${colorterm}
   done
-  echo -e '\e[1A\e[K'
+  echo -ne '\e[1A\e[K'
   # Makedb for merge proteins
   echo -ne "| ${colortitle}DiamondDB   :${NC}"
   title "genomedl | diamonddb prot."
@@ -1065,7 +1091,7 @@ if [[ ${division} == "PHG" && ${disable_pharokka} == false ]]; then
       percent_done=$(( ${cpt_done}*100/${nb_total} ))
       progress ${percent_done} "${acc_name:0:15}" ${colorterm}
     done
-    echo -e '\e[1A\e[K'
+    echo -ne '\e[1A\e[K'
     # Makedb for merge pharokka
     echo -ne "| ${colortitle}DiamondDB   :${NC}"
     title "genomedl | diamonddb phan."
@@ -1076,6 +1102,15 @@ if [[ ${division} == "PHG" && ${disable_pharokka} == false ]]; then
     echo -ne " all pharokka" ; rjust 28 true
   fi
 fi
+
+echo -ne "| ${colortitle}Scandir     :${NC}"
+title "genomedl | scandir"
+SPINNY_FRAMES=( " running                                             |" " running .                                           |" " running ..                                          |" " running ...                                         |" " running ....                                        |" " running .....                                      |")
+spinny::start
+scandir ${path_db} ${path_db}/scandir.txt
+spinny::stop
+echo -ne " done" ; rjust 19 true
+
 # End postprocessing
 echo -e "╰───────────────────────────────────────────────────────────────────╯"
 

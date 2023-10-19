@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 
 #***** Fast basename *****#
@@ -6,6 +6,31 @@ function get_base() {
   set -- "${1%"${1##*[!/]}"}"
   printf '%s\n' "${1##*/}"
 }
+
+
+#***** Fast list files in folder*****#
+function scandir() {
+  scan_folder="${1}"
+  output_file="${2}"
+  threads=$(($(nproc) - 2))  
+  temp_file=$(mktemp)
+  rm -f $output_file
+  # Get files list
+  parallel -j $threads ls -RU1 ::: $scan_folder > $temp_file
+  # Convert to absolute path
+  current_path=""
+  while IFS= read -r line; do
+    if [[ -n "$line" ]]; then
+      if [[ $line == *":" ]]; then
+        current_path="${line%:}"  # Supprime le dernier caractère ":"
+      elif [ -n "$current_path" ]; then
+        echo "${current_path}/${line}" >> "$output_file"
+      fi
+    fi
+  done < "$temp_file"
+  rm -f temp_file
+}
+
 
 #***** Add border to text *****#
 function border () {
