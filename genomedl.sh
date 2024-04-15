@@ -221,7 +221,7 @@ with open(pathJSON, 'w') as outfile: json.dump(dicoSummary, outfile, indent=4)
 EOF
 )
   echo "${PYTHON_SCRIPT}" > "${3}/make_summary.py"
-  python "${3}/make_summary.py" 2>>${4}
+  python3 "${3}/make_summary.py" 2>>${4}
 }
 
 function scandir() {
@@ -280,9 +280,10 @@ prodigal="prodigal"
 extractfeat="extractfeat"
 diamond="diamond"
 transeq="transeq"
-pharokka="/mnt/c/Users/dgoudenege/Tools/pharokka/bin/pharokka.py"
-pharokka_db="/mnt/g/db/pharokka_v1.2.0_db"
+pharokka="/mnt/c/Users/dgoudene/Tools/pharokka/bin/pharokka.py"
+pharokka_db="/mnt/d/pharokka_v1.2.0_db"
 checkv="checkv"
+CHECKVDB="/mnt/d/checkv-db-v1.5"
 # Paths & URLs
 taxonomy_efetch_url="https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=taxonomy"
 taxdump_url="ftp.ncbi.nlm.nih.gov/pub/taxonomy/new_taxdump/new_taxdump.tar.gz"
@@ -370,6 +371,7 @@ fi
 if ! command -v rsync &> /dev/null; then display_error "rsync not found (must be in path)" false ; fi
 if ! command -v gzip &> /dev/null; then display_error "gzip not found (must be in path)" false ; fi
 if ! command -v zgrep &> /dev/null; then display_error "zgrep not found (must be in path)" false ; fi
+if ! command -v parallel &> /dev/null; then display_error "parallel not found (must be in path)" false ; fi
 if ! command -v ${extractfeat} &> /dev/null; then display_error "extractfeat [EMBOSS] not found (use \$PATH or specify it)" false ; fi
 if ! command -v ${prodigal} &> /dev/null; then display_error "prodigal not found (use \$PATH or specify it)" false ; fi
 if ! command -v ${diamond} &> /dev/null; then display_error "diamond not found (use \$PATH or specify it)" false ; fi
@@ -379,8 +381,8 @@ if [ "$CHECKVDB" = "" ]; then display_error "checkv required a reference databas
 if [[ ! -d $CHECKVDB ]]; then display_error "reference database path defined in \$CHECKVDB not found" false ; fi
 # Check python3 and required packages
 if ! command -v python3 &> /dev/null; then display_error "python3 not found (use \$PATH)" false ; fi
-if ! python -c "import contextlib" &> /dev/null; then display_error "contextlib python package not found" false ; fi
-if ! python -c "import ete3" &> /dev/null; then display_error "ete3 python package not found" false ; fi
+if ! python3 -c "import contextlib" &> /dev/null; then display_error "contextlib python3 package not found" false ; fi
+if ! python3 -c "import ete3" &> /dev/null; then display_error "ete3 python3 package not found (check six also)" false ; fi
 # Check pharokka with conda
 if ! command -v conda &> /dev/null; then display_error "conda not found (must be in path)" false ; fi
 CONDA_BASE=$(conda info --base)
@@ -453,12 +455,12 @@ else
 fi
 # Display list/update mode
 if [ ${list_only} = true ]; then
-  echo -ne "| ${colortitle}List only  ${NC} : true" ; rjust "19" true
+  echo -ne "| ${colortitle}List only  : ${NC}true" ; rjust "19" true
 else
   if [ ${update_rsync} = true ]; then
-    echo -ne "| ${colortitle}Update mode${NC} : force" ; rjust "20" true
+    echo -ne "| ${colortitle}Update mode : ${NC}force" ; rjust "20" true
   else
-    echo -ne "| ${colortitle}Update mode${NC} : conservative" ; rjust "27" true
+    echo -ne "| ${colortitle}Update mode : ${NC}conservative" ; rjust "27" true
   fi
 fi
 # Display checkV/Pharokka Unable/disable
@@ -681,7 +683,7 @@ if [[ ${update_summary} = true || ! -f ${path_db}/assembly_summary.json ]]; then
 fi
 echo -ne " done" ; rjust 19 true
 make_python_summary_script ${path_db} ${update_summary} ${dir_tmp} ${log}
-exit 0
+
 
 # ***** DELETE replaced/removed genomes ***** #
 if [[ ${nb_removed} -eq 0 ]]; then
@@ -1006,7 +1008,7 @@ SPINNY_FRAMES=( " check missing                                       |" " check
 spinny::start
 totalMissingDMND=$((${nb_total}-${cpt_rsync_failed}-$(find ${path_db}/ -type f -name '*.dmnd' -exec ls -d {} + | wc -l)))
 if [[ ${division} == "PHG" && ${disable_pharokka} == false ]]; then
-  totalMissingDMND=$((totalMissingDMND + $((${nb_total}-${cpt_rsync_failed}-$(find /mnt/g/db/phageDB/ -maxdepth 3 -type f -name '*.dmnd' -exec ls -d {} + | grep "pharokka" | wc -l)))))
+  totalMissingDMND=$((totalMissingDMND + $((${nb_total}-${cpt_rsync_failed}-$(find ${path_db} -maxdepth 3 -type f -name '*.dmnd' -exec ls -d {} + | grep "pharokka" | wc -l)))))
 fi
 spinny::stop
 arrayPid=()

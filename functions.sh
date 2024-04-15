@@ -49,8 +49,19 @@ function border () {
 
 #***** Terminal title *****#
 function title () {
-  export PS1='${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
-  text=${1}
+  if [ -n "$starttitle" ]; then
+    if [ $# -eq 0 ]; then
+      text=${starttitle}
+    else
+      if [[ "${1}" == *"${starttitle}"* ]]; then
+        text="${starttitle}"
+      else
+        text="${starttitle}   -   ${1}"
+      fi
+    fi
+  else
+    text="┌∩┐(◣_◢)┌∩┐"
+  fi
   justify=$((29-${#text}))
   if (( $justify % 2 == 0 ))
     then
@@ -60,7 +71,15 @@ function title () {
     ljust=$(($justify / 2))
     rjust=$(($ljust + 1))
   fi
-  printf '\033]0;'".%s%${ljust}s${text}%s%${rjust}s."'\a'
+  term=$(basename "$(cat "/proc/$PPID/comm")") || term=""
+  if [[ "$myrelease" == "fedora" ]]; then
+    title=$(printf '\033]0;'"%s%${ljust}s${text}%s%${rjust}s"'\a')
+    export PS1='\[\e]0;${title}\a\]'${PS1}
+  elif [[ "$term" == *"gnome-terminal"* ]]; then
+    printf "\033]0;${text}\a"
+  else
+    printf '\033]0;'".%s%${ljust}s${text}%s%${rjust}s."'\a'
+  fi
   export currenttitle="$(echo "$1" | sed s/"✓  "/""/ | sed s/"X  "/""/)"
 }
 
@@ -92,7 +111,6 @@ function blinkon () {
 
 function blinkoff () {
   powershell.exe -NonInteractive -NoProfile -command "Import-Module PowerBlink ; Initialize-Blink1Devices ; Set-Blink1Color -DeviceNumber 0 -ColorR \"\" -ColorG \"\" -ColorB \"\""
-  title "┌∩┐(◣_◢)┌∩┐"
 }
 
 #***** Reverse complement *****#
@@ -192,4 +210,70 @@ function git_folder () {
   git commit -m "${commit_desc}"
   git push https://${token}@github.com/dooguypapua/${repo}.git
   cd ${src_path}
+}
+
+
+#***** Convert text to unicode *****#
+function convert_to_unicode() {
+    input="$1"
+    output=""
+    for ((i = 0; i < ${#input}; i++)); do
+        char="${input:$i:1}"
+        case "$char" in
+            A) output+="𝗔" ;;
+            B) output+="𝗕" ;;
+            C) output+="𝗖" ;;
+            D) output+="𝗗" ;;
+            E) output+="𝗘" ;;
+            F) output+="𝗙" ;;
+            G) output+="𝗚" ;;
+            H) output+="𝗛" ;;
+            I) output+="𝗜" ;;
+            J) output+="𝗝" ;;
+            K) output+="𝗞" ;;
+            L) output+="𝗟" ;;
+            M) output+="𝗠" ;;
+            N) output+="𝗡" ;;
+            O) output+="𝗢" ;;
+            P) output+="𝗣" ;;
+            Q) output+="𝗤" ;;
+            R) output+="𝗥" ;;
+            S) output+="𝗦" ;;
+            T) output+="𝗧" ;;
+            U) output+="𝗨" ;;
+            V) output+="𝗩" ;;
+            W) output+="𝗪" ;;
+            X) output+="𝗫" ;;
+            Y) output+="𝗬" ;;
+            Z) output+="𝗭" ;;
+            a) output+="𝗮" ;;
+            b) output+="𝗯" ;;
+            c) output+="𝗰" ;;
+            d) output+="𝗱" ;;
+            e) output+="𝗲" ;;
+            f) output+="𝗳" ;;
+            g) output+="𝗴" ;;
+            h) output+="𝗵" ;;
+            i) output+="𝗶" ;;
+            j) output+="𝗷" ;;
+            k) output+="𝗸" ;;
+            l) output+="𝗹" ;;
+            m) output+="𝗺" ;;
+            n) output+="𝗻" ;;
+            o) output+="𝗼" ;;
+            p) output+="𝗽" ;;
+            q) output+="𝗾" ;;
+            r) output+="𝗿" ;;
+            s) output+="𝘀" ;;
+            t) output+="𝘁" ;;
+            u) output+="𝘂" ;;
+            v) output+="𝘃" ;;
+            w) output+="𝘄" ;;
+            x) output+="𝘅" ;;
+            y) output+="𝘆" ;;
+            z) output+="𝘇" ;;
+            *) output+="$char" ;;
+        esac
+    done
+    echo "$output"
 }
